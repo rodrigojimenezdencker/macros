@@ -24,33 +24,58 @@ const STORAGE_ERRORS = new Set([
 ]);
 
 export function isStorageError(err: unknown): boolean {
-  const e = err as { name?: unknown; inner?: unknown } | null;
-  if (!e || typeof e !== 'object') return false;
-  if (typeof e.name === 'string' && STORAGE_ERRORS.has(e.name)) return true;
-  // Dexie wraps the browser's error in `inner`.
-  return e.inner !== undefined && e.inner !== err && isStorageError(e.inner);
+  // Dexie wraps the browser's error in `inner`; follow a few levels at most.
+  let e = err as { name?: unknown; inner?: unknown } | null;
+  for (let depth = 0; depth < 5 && e && typeof e === 'object'; depth++) {
+    if (typeof e.name === 'string' && STORAGE_ERRORS.has(e.name)) return true;
+    e = e.inner as typeof e;
+  }
+  return false;
 }
 
-const RELOAD_KEY = 'macros:storage-reload';
-const RELOAD_COOLDOWN_MS = 60_000;
+/**
+ * A reload only helps when storage worked before and then broke. So we
+ * auto-reload once, mark it pending, and allow another only after a query
+ * has succeeded since (plus a minimum gap, in case storage keeps flapping).
+ * If storage is simply unusable, the user gets one reload and then the banner.
+ */
+const PENDING_KEY = 'macros:storage-reload-pending';
+const LAST_KEY = 'macros:storage-reload-at';
+const MIN_GAP_MS = 30_000;
 
 let failure: string | null = null;
+let workedThisLoad = false;
 const listeners = new Set<() => void>();
 
-function readReloadStamp(): number {
+function session(): Storage | null {
   try {
-    return Number(sessionStorage.getItem(RELOAD_KEY)) || 0;
+    return window.sessionStorage;
   } catch {
-    return 0;
+    return null;
   }
 }
 
-function writeReloadStamp(now: number) {
+/** Called after a successful query: a later failure is a new loss worth one reload. */
+export function noteStorageWorks() {
+  if (workedThisLoad) return;
+  workedThisLoad = true;
   try {
-    sessionStorage.setItem(RELOAD_KEY, String(now));
+    session()?.removeItem(PENDING_KEY);
+  } catch {
+    // Nothing to clear.
+  }
+}
+
+function claimReload(now: number): boolean {
+  const s = session();
+  if (!s) return false; // Can't remember reloading, so never risk a loop.
+  try {
+    if (s.getItem(PENDING_KEY)) return false;
+    if (now - (Number(s.getItem(LAST_KEY)) || 0) < MIN_GAP_MS) return false;
+    s.setItem(PENDING_KEY, '1');
+    s.setItem(LAST_KEY, String(now));
     return true;
   } catch {
-    // Without sessionStorage we cannot guard against reload loops, so don't reload.
     return false;
   }
 }
@@ -58,8 +83,7 @@ function writeReloadStamp(now: number) {
 /** Records a storage failure: reloads once to reconnect, otherwise shows the banner. */
 export function reportStorageError(err: unknown, now = Date.now()) {
   console.error('Storage error', err);
-  const last = readReloadStamp();
-  if (now - last > RELOAD_COOLDOWN_MS && writeReloadStamp(now)) {
+  if (claimReload(now)) {
     window.location.reload();
     return;
   }
@@ -81,13 +105,29 @@ export function useStorageFailure(): string | null {
   );
 }
 
+/** For one-off reads and writes: reports storage failures, logs anything else. */
+export function catchStorage(err: unknown) {
+  if (isStorageError(err)) reportStorageError(err);
+  else console.error(err);
+}
+
 /** When the app comes back to the foreground, check the database still answers. */
 export function watchStorageHealth() {
+  // Writes in event handlers use native async/await; their failures end up here.
+  window.addEventListener('unhandledrejection', (e) => {
+    if (isStorageError(e.reason)) {
+      e.preventDefault();
+      reportStorageError(e.reason);
+    }
+  });
   const probe = () => {
     if (document.visibilityState !== 'visible') return;
-    db.settings.get('settings').catch((err) => {
-      if (isStorageError(err)) reportStorageError(err);
-    });
+    db.settings
+      .get('settings')
+      .then(noteStorageWorks)
+      .catch((err) => {
+        if (isStorageError(err)) reportStorageError(err);
+      });
   };
   document.addEventListener('visibilitychange', probe);
   window.addEventListener('pageshow', (e) => e.persisted && probe());

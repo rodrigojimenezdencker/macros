@@ -17,7 +17,10 @@ const nonNeg = (x: unknown): number | undefined => (typeof x === 'number' && Num
 const positive = (x: unknown): number | undefined => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : undefined);
 const text = (x: unknown): string | undefined => (typeof x === 'string' && x.trim() ? x.trim() : undefined);
 const unit = (x: unknown): Unit => (x === 'ml' ? 'ml' : 'g');
-const id = (x: unknown): number | undefined => (Number.isInteger(x) && (x as number) > 0 ? (x as number) : undefined);
+// Ids far below 2^53: a huge explicit id would exhaust IndexedDB's key generator for good.
+const MAX_ID = 2 ** 31;
+const id = (x: unknown): number | undefined =>
+  Number.isSafeInteger(x) && (x as number) > 0 && (x as number) < MAX_ID ? (x as number) : undefined;
 
 function nutrients(x: unknown): Nutrients | null {
   if (!isObj(x)) return null;
@@ -124,11 +127,12 @@ function profile(x: unknown): Profile | undefined {
   if (!isObj(x)) return undefined;
   const { sex, activity, goal } = x;
   if (sex !== 'male' && sex !== 'female') return undefined;
-  if (typeof activity !== 'string' || !(activity in ACTIVITY)) return undefined;
-  if (typeof goal !== 'string' || !(goal in GOAL)) return undefined;
+  if (typeof activity !== 'string' || !Object.hasOwn(ACTIVITY, activity)) return undefined;
+  if (typeof goal !== 'string' || !Object.hasOwn(GOAL, goal)) return undefined;
   const age = positive(x.age);
   const heightCm = positive(x.heightCm);
-  const weightKg = typeof x.weightKg === 'number' && isPlausibleWeight(x.weightKg) ? x.weightKg : undefined;
+  // Out-of-range values are kept: the calculator flags them when it loads the profile.
+  const weightKg = positive(x.weightKg);
   if (!age || !heightCm || !weightKg) return undefined;
   return { sex, activity: activity as Profile['activity'], goal: goal as Profile['goal'], age, heightCm, weightKg };
 }
@@ -157,10 +161,15 @@ function compact<T extends object>(row: T): T {
   return Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined)) as T;
 }
 
-/** Keeps the first row for each id so a bulk insert can't fail on duplicates. */
+/**
+ * Keeps the first row for each id, and puts rows with an id before rows
+ * without one: auto-generated keys could otherwise collide with an explicit
+ * id later in the list and abort the whole import.
+ */
 function uniqueIds<T extends { id?: number }>(rows: T[]): T[] {
   const seen = new Set<number>();
-  return rows.filter((r) => r.id === undefined || (!seen.has(r.id) && !!seen.add(r.id)));
+  const withId = rows.filter((r) => r.id !== undefined && !seen.has(r.id) && !!seen.add(r.id));
+  return [...withId, ...rows.filter((r) => r.id === undefined)];
 }
 
 export interface CleanBackup {

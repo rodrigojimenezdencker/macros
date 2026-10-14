@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mockOpenFoodFacts } from './fixtures';
+import { field, mockOpenFoodFacts } from './fixtures';
 
 /** Makes every IndexedDB read fail the way Safari does after losing its database connection. */
 async function breakIndexedDB(page: Page) {
@@ -114,4 +114,53 @@ test('importing a damaged backup skips the bad rows and nothing breaks', async (
   await expect(page.getByText('objetivo 2100 kcal')).toBeVisible();
   await tabbar(page).getByRole('button', { name: 'Ajustes' }).click();
   await expect(page.getByRole('heading', { name: 'Ajustes' })).toBeVisible();
+});
+
+test('re-tapping the tab of a failed screen tries it again', async ({ page }) => {
+  await page.evaluate(() => {
+    const w = window as unknown as { __format?: PropertyDescriptor };
+    w.__format = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype, 'format');
+    Object.defineProperty(Intl.DateTimeFormat.prototype, 'format', {
+      configurable: true,
+      get() {
+        throw new RangeError('fallo simulado');
+      },
+    });
+  });
+  await tabbar(page).getByRole('button', { name: 'Progreso' }).click();
+  await expect(page.getByRole('heading', { name: 'Algo ha fallado' })).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as unknown as { __format: PropertyDescriptor };
+    Object.defineProperty(Intl.DateTimeFormat.prototype, 'format', w.__format);
+  });
+  await tabbar(page).getByRole('button', { name: 'Progreso' }).click();
+  await expect(page.getByRole('heading', { name: 'Progreso' })).toBeVisible();
+});
+
+test('one-off reads and failed saves also recover instead of failing silently', async ({ page }) => {
+  // A screen that loads with a one-off read (editing a food).
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const req = indexedDB.open('macros');
+        req.onsuccess = () => {
+          const tx = req.result.transaction('foods', 'readwrite');
+          tx.objectStore('foods').put({ id: 7, name: 'Hummus', source: 'custom', unit: 'g', per100: { kcal: 166, protein: 8, carbs: 14, fat: 10 }, createdAt: 1 });
+          tx.oncomplete = () => resolve();
+        };
+      }),
+  );
+  await breakIndexedDB(page);
+  await page.evaluate(() => (window.location.hash = '#/food/7'));
+  await expect(field(page, 'Nombre')).toHaveValue('Hummus'); // after the automatic reload
+
+  // A write from a button: the failure triggers recovery too (here: the banner, as we just reloaded).
+  await page.evaluate(() => {
+    const fail = () => {
+      throw new DOMException('Connection to Indexed Database server lost. Refresh the page to try again', 'UnknownError');
+    };
+    for (const m of ['add', 'put', 'delete']) (IDBObjectStore.prototype as unknown as Record<string, unknown>)[m] = fail;
+  });
+  await page.getByRole('button', { name: 'Guardar' }).click();
+  await expect(page.getByText('No se pueden leer tus datos ahora mismo.')).toBeVisible();
 });

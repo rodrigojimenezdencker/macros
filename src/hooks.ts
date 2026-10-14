@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { DEFAULT_SETTINGS, getSettings } from './db';
-import { isStorageError, reportStorageError } from './storage';
+import { isStorageError, noteStorageWorks, reportStorageError } from './storage';
 import type { DiaryEntry, Food, Settings, WeightEntry } from './types';
 
 // Stable empty results, so memoised derivations don't recompute while loading.
@@ -17,7 +17,9 @@ export function useDbQuery<T>(query: () => Promise<T>, deps: unknown[], fallback
   return useLiveQuery(
     async () => {
       try {
-        return await query();
+        const result = await query();
+        noteStorageWorks();
+        return result;
       } catch (err) {
         if (!isStorageError(err)) throw err;
         reportStorageError(err);

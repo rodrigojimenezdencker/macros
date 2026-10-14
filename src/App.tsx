@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRoute, navigate } from './router';
 import { today } from './lib/dates';
 import { isMealId, mealForHour } from './lib/meals';
@@ -25,6 +25,8 @@ const isDate = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.t
 
 export function App() {
   const route = useRoute();
+  // Re-tapping a tab after a screen failed gives it another try.
+  const [retry, setRetry] = useState(0);
   const [first, second] = route.segments;
   const date = isDate(route.params.get('d')) ? route.params.get('d')! : today();
 
@@ -76,7 +78,7 @@ export function App() {
     <>
       <StorageBanner />
       <main className="app-main">
-        <ErrorBoundary resetKey={route.path}>{page}</ErrorBoundary>
+        <ErrorBoundary resetKey={`${route.path}?${route.params}#${retry}`}>{page}</ErrorBoundary>
       </main>
       <nav className="tabbar" aria-label="Secciones">
         {TABS.map((t) => (
@@ -84,7 +86,10 @@ export function App() {
             key={t.path}
             className={tab === t.path ? 'active' : ''}
             aria-current={tab === t.path ? 'page' : undefined}
-            onClick={() => navigate(t.path, { replace: true })}
+            onClick={() => {
+              setRetry((r) => r + 1);
+              navigate(t.path, { replace: true });
+            }}
           >
             <Icon name={t.icon} />
             <span>{t.label}</span>

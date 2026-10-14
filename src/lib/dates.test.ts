@@ -19,6 +19,8 @@ describe('dates', () => {
     expect(relativeLabel('abc', '2026-10-14')).toBe('Abc');
     expect(isISODate('2026-10-14')).toBe(true);
     expect(isISODate('2026-13-45x')).toBe(false);
+    expect(isISODate('2026-02-30')).toBe(false);
+    expect(isISODate('2024-02-29')).toBe(true);
     expect(isISODate(undefined)).toBe(false);
   });
 

@@ -53,3 +53,32 @@ describe('sanitizeBackup', () => {
     expect(clean.foods.map((f) => f.name)).toEqual(['Avena']);
   });
 });
+
+describe('sanitizeBackup ids and dates', () => {
+  it('puts rows with ids first so generated keys cannot collide', () => {
+    const clean = sanitizeBackup({ foods: [{ ...goodFood, id: undefined, name: 'Sin id' }, goodFood], entries: [], weights: [] });
+    expect(clean.foods.map((f) => f.id)).toEqual([1, undefined]);
+  });
+
+  it('refuses ids that would exhaust the key generator', () => {
+    const clean = sanitizeBackup({ foods: [{ ...goodFood, id: 2 ** 53 }], entries: [], weights: [] });
+    expect(clean.foods[0]).not.toHaveProperty('id');
+  });
+
+  it('rejects impossible calendar days and inherited keys', () => {
+    const clean = sanitizeBackup({
+      foods: [],
+      entries: [{ ...goodEntry, date: '2026-02-30' }],
+      weights: [{ date: '2026-09-31', kg: 80 }],
+      settings: { profile: { sex: 'male', age: 30, heightCm: 180, weightKg: 80, activity: 'toString', goal: 'maintain' } },
+    });
+    expect(clean.entries).toHaveLength(0);
+    expect(clean.weights).toHaveLength(0);
+    expect(clean.settings.profile).toBeUndefined();
+  });
+
+  it('keeps a profile whose weight is merely implausible (the calculator flags it)', () => {
+    const profile = { sex: 'female', age: 34, heightCm: 165, weightKg: 7.9, activity: 'light', goal: 'lose' };
+    expect(sanitizeBackup({ foods: [], entries: [], weights: [], settings: { profile } }).settings.profile).toEqual(profile);
+  });
+});

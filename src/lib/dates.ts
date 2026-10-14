@@ -37,8 +37,9 @@ function safeFormat(f: Intl.DateTimeFormat, s: string): string {
   return Number.isNaN(d.getTime()) ? String(s) : f.format(d);
 }
 
+/** A real calendar day in YYYY-MM-DD form (rejects 2026-02-30 and friends). */
 export function isISODate(s: unknown): s is string {
-  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(fromISODate(s).getTime());
+  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && toISODate(fromISODate(s)) === s;
 }
 
 export function relativeLabel(s: string, now = today()): string {

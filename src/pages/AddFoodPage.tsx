@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { db, rememberFood } from '../db';
+import { catchStorage } from '../storage';
 import { useSettings } from '../hooks';
 import { goBack, navigate } from '../router';
 import type { Food, MealId, Nutrients } from '../types';
@@ -20,7 +21,7 @@ export function AddFoodPage({ date, meal }: { date: string; meal: MealId }) {
   // Coming back from "Crear alimento": open the new food right away.
   useEffect(() => {
     const id = takePendingPick();
-    if (id !== undefined) void db.foods.get(id).then((f) => f && setSelected(f));
+    if (id !== undefined) void db.foods.get(id).then((f) => f && setSelected(f)).catch(catchStorage);
   }, []);
 
   const back = () => goBack(`/?d=${date}`);
