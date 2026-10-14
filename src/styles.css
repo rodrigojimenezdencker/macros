@@ -283,10 +283,11 @@ h3 {
 }
 .btn-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 .btn-row .btn {
-  flex: 1;
+  flex: 1 1 140px;
 }
 
 .icon-btn {
@@ -1369,6 +1370,77 @@ h3 {
   border-top: 1px solid var(--hairline);
   padding: 2px 0;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Account ---------- */
+.auth {
+  max-width: 440px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  padding: calc(env(safe-area-inset-top) + 32px) 16px 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+}
+.auth-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.auth-brand img {
+  border-radius: 14px;
+}
+.auth-brand h1 {
+  font-size: 1.8rem;
+}
+.auth-brand p {
+  margin: 0;
+}
+.auth-card .btn-primary {
+  width: 100%;
+}
+.auth-error,
+.auth-info {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+.auth-error {
+  background: color-mix(in srgb, var(--critical) 12%, var(--surface));
+  color: var(--critical);
+}
+.auth-info {
+  background: var(--warn-bg);
+  color: var(--ink);
+}
+.link-btn {
+  color: var(--protein);
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 6px 4px;
+  white-space: nowrap;
+}
+.link-btn.center {
+  align-self: center;
+}
+.account-email {
+  font-weight: 650;
+  word-break: break-all;
+}
+.sync-banner {
+  position: sticky;
+  top: 0;
+  z-index: 24;
+  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 0.88rem;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
 }
 
 /* ---------- Errors ---------- */

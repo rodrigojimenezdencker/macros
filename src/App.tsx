@@ -13,6 +13,7 @@ import { Icon, type IconName } from './components/Icon';
 import { ToastHost } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useStorageFailure } from './storage';
+import { useSyncState } from './cloud/session';
 
 const TABS: { path: string; label: string; icon: IconName }[] = [
   { path: '/', label: 'Diario', icon: 'diary' },
@@ -81,6 +82,7 @@ export function App() {
   return (
     <>
       <StorageBanner />
+      <FirstSyncBanner />
       <main className="app-main">
         <ErrorBoundary resetKey={`${route.path}?${route.params}#${retry}`}>{page}</ErrorBoundary>
       </main>
@@ -118,6 +120,23 @@ function StorageBanner() {
       <button className="btn btn-primary" onClick={() => window.location.reload()}>
         Recargar
       </button>
+    </div>
+  );
+}
+
+/** On a new device the account's data takes a moment to arrive; say so instead of showing an empty diary. */
+function FirstSyncBanner() {
+  const sync = useSyncState();
+  if (!sync || sync.hasPulled) return null;
+  const text =
+    sync.status === 'offline'
+      ? 'Sin conexión: tus datos de la cuenta se descargarán cuando vuelva la red.'
+      : sync.status === 'error'
+        ? 'No se han podido descargar tus datos. Lo reintentaremos; puedes verlo en Ajustes.'
+        : 'Descargando tus datos de la cuenta…';
+  return (
+    <div className="sync-banner" role="status">
+      {text}
     </div>
   );
 }

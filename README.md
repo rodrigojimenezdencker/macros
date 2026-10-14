@@ -1,6 +1,6 @@
 # Macros
 
-App web para registrar lo que comes y seguir tus calorías y macronutrientes, al estilo de MyFitnessPal. Se instala en el móvil como una app (PWA), funciona sin conexión y guarda tus datos solo en tu dispositivo: sin cuentas, sin anuncios y sin servidores propios.
+App web para registrar lo que comes y seguir tus calorías y macronutrientes, al estilo de MyFitnessPal. Se instala en el móvil como una app (PWA) y funciona sin conexión. Con una cuenta (Supabase, gratis) tus datos se guardan en la nube y se sincronizan entre tus dispositivos; sin configurarla, la app funciona solo en el dispositivo.
 
 ## Qué hace
 
@@ -14,6 +14,7 @@ App web para registrar lo que comes y seguir tus calorías y macronutrientes, al
 - **Recientes, favoritos y copiar comidas de ayer**, para registrar en segundos lo que comes a menudo.
 - **Calculadora de objetivos** (Mifflin-St Jeor + nivel de actividad + perder/mantener/ganar), o fija tus macros a mano en gramos o porcentajes.
 - **Progreso**: calorías diarias desglosadas por macro, medias de 7/30/90 días y evolución del peso.
+- **Cuenta con correo y contraseña**: tus datos se guardan en tu cuenta y se sincronizan entre dispositivos (con recuperación de contraseña).
 - **Copia de seguridad** en un archivo JSON para exportar e importar.
 
 ## Usarla en el móvil
@@ -23,7 +24,7 @@ Cuando esté publicada en GitHub Pages (ver abajo), abre la URL en el móvil y:
 - **iPhone (Safari):** botón Compartir → *Añadir a pantalla de inicio*.
 - **Android (Chrome):** menú ⋮ → *Instalar aplicación*.
 
-Tus datos viven en el almacenamiento del navegador de ese dispositivo. Exporta una copia de seguridad de vez en cuando (Ajustes → Copia de seguridad), sobre todo antes de cambiar de móvil.
+Con la cuenta configurada (ver abajo), entra con tu correo en cada dispositivo y verás los mismos datos. Sin cuenta, los datos viven solo en el navegador de ese dispositivo: exporta una copia de seguridad de vez en cuando (Ajustes → Copia de seguridad).
 
 ## Publicarla gratis con GitHub Pages
 
@@ -35,6 +36,27 @@ El repositorio incluye un flujo de GitHub Actions (`.github/workflows/deploy.yml
 
 La app quedará en `https://<tu-usuario>.github.io/macros/`. La cámara para escanear necesita HTTPS, que GitHub Pages ya da.
 
+## Cuenta y sincronización (Supabase)
+
+La app guarda los datos en [Supabase](https://supabase.com) (base de datos Postgres + inicio de sesión; el plan gratuito sobra para uso personal). Configuración, una sola vez:
+
+1. **Crea el proyecto.** Entra en supabase.com → *New project*. Elige una región cercana (p. ej. *West EU*) y guarda la contraseña de la base de datos (no la necesitará la app).
+2. **Crea la tabla.** En el proyecto: *SQL Editor* → *New query* → pega el contenido de [`supabase/schema.sql`](supabase/schema.sql) → *Run*. Crea la tabla `records` con seguridad por filas (cada usuario solo ve sus datos) y la función de sincronización.
+3. **Configura el inicio de sesión.** *Authentication* → *URL Configuration*:
+   - *Site URL*: `https://<tu-usuario>.github.io/macros/`
+   - *Redirect URLs*: añade esa misma URL (y `http://localhost:5173/` si desarrollas en local).
+
+   El correo de confirmación de cuenta viene activado por defecto. Para uso personal puedes desactivarlo en *Authentication* → *Sign In / Providers* → *Email* → *Confirm email*.
+4. **Copia las claves.** *Project Settings* → *API Keys*: la **Project URL** y la **publishable key** (`sb_publishable_…`, o la *anon key* en proyectos antiguos). Son públicas por diseño: los datos los protege la seguridad por filas.
+5. **Pásaselas a GitHub.** En el repositorio: *Settings* → *Secrets and variables* → *Actions* → pestaña *Variables* → crea `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`.
+6. **Publica.** Lanza *Actions* → *Deploy to GitHub Pages* → *Run workflow* (o haz merge a `main`).
+
+Al abrir la app verás la pantalla de acceso. La primera vez que entres en un dispositivo que ya tenía datos guardados, esos datos se suben a tu cuenta.
+
+Cómo funciona: cada dispositivo guarda una copia local (IndexedDB) y sube y baja los cambios en segundo plano: al abrir la app, al volver a ella, tras cada cambio y en tiempo real cuando otro dispositivo cambia algo. Si dos dispositivos editan lo mismo sin conexión, gana el cambio más reciente. Al cerrar sesión se borra la copia local de ese dispositivo (sigue en tu cuenta).
+
+Para probarlo en local, copia `.env.example` a `.env.local` y rellena las dos variables.
+
 ## Desarrollo
 
 Requiere Node 22 o superior.
@@ -44,7 +66,7 @@ npm install
 npm run dev          # servidor de desarrollo en http://localhost:5173
 npm run typecheck    # TypeScript
 npm test             # tests unitarios (Vitest)
-npm run test:e2e     # tests de extremo a extremo (Playwright; Open Food Facts va simulado)
+npm run test:e2e     # tests de extremo a extremo (Playwright; Open Food Facts y Supabase van simulados)
 npm run build        # versión de producción en dist/
 ```
 
@@ -54,6 +76,7 @@ Si `npm install` falla con `Cannot read properties of null (reading 'edgesOut')`
 
 - **React + TypeScript + Vite**, con `vite-plugin-pwa` para que se pueda instalar y funcione sin conexión.
 - **IndexedDB** (vía Dexie) como base de datos local: `src/db.ts`.
+- **Sincronización** en `src/sync/` (seguimiento de cambios y motor de sincronización, con tests de dos dispositivos) y **cuenta** en `src/cloud/` (cliente de Supabase, sesión y pantallas de acceso). El esquema de la base de datos está en `supabase/schema.sql`.
 - **Open Food Facts** se consulta directamente desde el navegador (`src/lib/openfoodfacts.ts`). Se busca al pulsar *Buscar*, no a cada tecla, para respetar sus límites de uso.
 - Cálculos de nutrición y objetivos en `src/lib/` (con tests al lado).
 - Las entradas del diario guardan una copia del alimento: si después editas o borras el alimento, tu historial no cambia.

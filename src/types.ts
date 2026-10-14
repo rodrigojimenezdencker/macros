@@ -23,7 +23,15 @@ export interface RecipeIngredient {
   servingLabel?: string;
 }
 
-export interface Food {
+/** Fields every synced row carries. */
+export interface SyncFields {
+  /** Global id, the same on every device (local `id`s are per device). */
+  uid?: string;
+  /** Last local change, ms since epoch: drives sync and last-writer-wins. */
+  updatedAt?: number;
+}
+
+export interface Food extends SyncFields {
   id?: number;
   name: string;
   brand?: string;
@@ -54,7 +62,7 @@ export type FoodSnapshot = Pick<Food, 'name' | 'brand' | 'unit' | 'per100' | 'se
   foodId?: number;
 };
 
-export interface DiaryEntry {
+export interface DiaryEntry extends SyncFields {
   id?: number;
   /** Local calendar day, YYYY-MM-DD. */
   date: string;
@@ -72,6 +80,7 @@ export interface DiaryEntry {
 export interface WeightEntry {
   date: string;
   kg: number;
+  updatedAt?: number;
 }
 
 export type Sex = 'male' | 'female';
@@ -96,6 +105,7 @@ export interface Goals {
 }
 
 export interface Settings {
+  updatedAt?: number;
   goals: Goals;
   profile?: Profile;
   /** Open Food Facts country subdomain ('world', 'es', 'mx', ...). */

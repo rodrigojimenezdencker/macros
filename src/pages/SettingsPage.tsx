@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { db, exportAll, importAll, isBackup, saveSettings } from '../db';
+import { db, exportAll, importAll, isBackup, saveSettings, wipeData } from '../db';
 import { useSettings } from '../hooks';
 import type { ActivityLevel, Goals, GoalType, Profile, Sex } from '../types';
 import { ACTIVITY, GOAL, bmr, gramsFromPercent, minimumKcal, profileProblem, suggestGoals, tdee } from '../lib/goals';
@@ -11,6 +11,8 @@ import { NumberField, Segmented } from '../components/Field';
 import { MACROS, Swatch } from '../components/Macros';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
+import { cloudEnabled } from '../cloud/supabase';
+import { signOut, syncNow, useAuth, useSyncState } from '../cloud/session';
 
 export function SettingsPage() {
   const settings = useSettings();
@@ -19,6 +21,7 @@ export function SettingsPage() {
       <header className="page-head">
         <h1>Ajustes</h1>
       </header>
+      {cloudEnabled && <AccountCard />}
       <GoalsCard goals={settings.goals} key={JSON.stringify(settings.goals)} />
       <CalculatorCard profile={settings.profile} />
       <section className="card form">
@@ -45,8 +48,9 @@ export function SettingsPage() {
           <Icon name="info" size={18} /> Acerca de
         </h2>
         <p className="small">
-          Tus datos se guardan solo en este dispositivo; no hay cuentas ni servidores. Haz una copia de seguridad de vez en
-          cuando, sobre todo antes de cambiar de móvil o borrar los datos del navegador.
+          {cloudEnabled
+            ? 'Tus datos se guardan en tu cuenta y en este dispositivo, así que puedes usar la app sin conexión y en varios dispositivos.'
+            : 'Tus datos se guardan solo en este dispositivo; no hay cuentas ni servidores. Haz una copia de seguridad de vez en cuando, sobre todo antes de cambiar de móvil o borrar los datos del navegador.'}
         </p>
         <p className="small muted">
           Datos de productos ©{' '}
@@ -58,6 +62,81 @@ export function SettingsPage() {
         <p className="small muted">Versión {__APP_VERSION__}</p>
       </section>
     </div>
+  );
+}
+
+function timeAgo(ms: number): string {
+  const s = Math.round((Date.now() - ms) / 1000);
+  if (s < 45) return 'hace un momento';
+  const m = Math.round(s / 60);
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `hace ${h} h`;
+  return new Date(ms).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function AccountCard() {
+  const auth = useAuth();
+  const sync = useSyncState();
+  const [busy, setBusy] = useState(false);
+  // Re-render every minute so "hace X min" stays true.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const status = !sync
+    ? 'Preparando la sincronización…'
+    : sync.status === 'syncing'
+      ? 'Sincronizando…'
+      : sync.status === 'offline'
+        ? 'Sin conexión: los cambios se subirán al volver la red.'
+        : sync.status === 'error'
+          ? `No se ha podido sincronizar: ${sync.error}`
+          : sync.lastSyncedAt
+            ? `Sincronizado ${timeAgo(sync.lastSyncedAt)}`
+            : 'Sin sincronizar todavía';
+
+  const doSignOut = async () => {
+    setBusy(true);
+    try {
+      let result = await signOut();
+      if (result === 'pending') {
+        const ok = confirm(
+          'Hay cambios que aún no se han subido a tu cuenta (¿sin conexión?). Si cierras sesión ahora se perderán. ¿Cerrar sesión de todos modos?',
+        );
+        if (!ok) return;
+        result = await signOut({ discardPending: true });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card form account">
+      <h2 className="card-title">
+        <Icon name="user" size={18} /> Cuenta
+      </h2>
+      <div className="account-row">
+        <div>
+          <div className="account-email">{auth.session?.user.email}</div>
+          <div className={`small ${sync?.status === 'error' ? 'error' : 'muted'}`} role="status">
+            {status}
+            {sync && sync.pending > 0 && sync.status !== 'syncing' ? ` · ${sync.pending} cambios pendientes` : ''}
+          </div>
+        </div>
+      </div>
+      <div className="btn-row">
+        <button className="btn" onClick={() => void syncNow()} disabled={!sync || sync.status === 'syncing'}>
+          <Icon name="sync" size={18} /> Sincronizar ahora
+        </button>
+        <button className="btn" onClick={() => void doSignOut()} disabled={busy}>
+          <Icon name="logout" size={18} /> Cerrar sesión
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -325,8 +404,11 @@ function BackupCard() {
   };
 
   const wipe = async () => {
-    if (!confirm('¿Borrar todos los datos de este dispositivo? No se puede deshacer.')) return;
-    await Promise.all([db.foods.clear(), db.entries.clear(), db.weights.clear(), db.settings.clear()]);
+    const question = cloudEnabled
+      ? '¿Borrar todos tus datos? Se borrarán de tu cuenta y de todos tus dispositivos. No se puede deshacer.'
+      : '¿Borrar todos los datos de este dispositivo? No se puede deshacer.';
+    if (!confirm(question)) return;
+    await wipeData();
     toast('Datos borrados');
   };
 
