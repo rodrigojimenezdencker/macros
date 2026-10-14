@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { db, exportAll, importAll, isBackup, saveSettings } from '../db';
 import { useSettings } from '../hooks';
 import type { ActivityLevel, Goals, GoalType, Profile, Sex } from '../types';
-import { ACTIVITY, GOAL, bmr, gramsFromPercent, minimumKcal, suggestGoals, tdee } from '../lib/goals';
+import { ACTIVITY, GOAL, bmr, gramsFromPercent, minimumKcal, profileProblem, suggestGoals, tdee } from '../lib/goals';
 import { fmtKcal, kcalFromMacros, macroSplit } from '../lib/nutrition';
 import { OFF_COUNTRIES } from '../lib/openfoodfacts';
+import { sanitizeBackup } from '../lib/backup';
 import { today } from '../lib/dates';
 import { NumberField, Segmented } from '../components/Field';
 import { MACROS, Swatch } from '../components/Macros';
@@ -177,7 +178,8 @@ function CalculatorCard({ profile }: { profile?: Profile }) {
   }, [profile]);
 
   const complete = !!(p.age && p.heightCm && p.weightKg && p.sex && p.activity && p.goal);
-  const full = complete ? (p as Profile) : null;
+  const problem = complete ? profileProblem(p as Profile) : null;
+  const full = complete && !problem ? (p as Profile) : null;
   const suggestion = full ? suggestGoals(full) : null;
   const set = <K extends keyof Profile>(k: K) => (v: Profile[K] | undefined) => setP((prev) => ({ ...prev, [k]: v }));
 
@@ -242,6 +244,7 @@ function CalculatorCard({ profile }: { profile?: Profile }) {
             </span>
           </label>
 
+          {problem && <p className="error small">{problem}</p>}
           {full && suggestion && (
             <div className="suggestion">
               <dl className="extras">
@@ -298,14 +301,25 @@ function BackupCard() {
   };
 
   const doImport = async (file: File) => {
+    let data: unknown;
     try {
-      const data = JSON.parse(await file.text());
-      if (!isBackup(data)) throw new Error('not a backup');
-      if (!confirm(`Esto sustituirá todos tus datos actuales por los de la copia (${data.entries.length} registros). ¿Continuar?`)) return;
-      await importAll(data);
-      toast('Copia restaurada');
+      data = JSON.parse(await file.text());
     } catch {
       alert('El archivo no es una copia de seguridad válida de Macros.');
+      return;
+    }
+    if (!isBackup(data)) {
+      alert('El archivo no es una copia de seguridad válida de Macros.');
+      return;
+    }
+    const clean = sanitizeBackup(data);
+    const note = clean.skipped ? ` Se omitirán ${clean.skipped} registros dañados.` : '';
+    if (!confirm(`Esto sustituirá todos tus datos actuales por los de la copia (${clean.entries.length} registros).${note} ¿Continuar?`)) return;
+    try {
+      await importAll(clean);
+      toast(clean.skipped ? `Copia restaurada (${clean.skipped} registros omitidos)` : 'Copia restaurada');
+    } catch (err) {
+      alert(`No se pudo restaurar la copia: ${(err as Error)?.message ?? err}. Tus datos actuales no se han tocado.`);
     }
   };
 

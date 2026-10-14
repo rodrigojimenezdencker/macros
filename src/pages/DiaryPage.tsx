@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { copyFromYesterday, db } from '../db';
-import { useSettings } from '../hooks';
+import { NO_ENTRIES, useDbQuery, useSettings } from '../hooks';
 import { navigate } from '../router';
 import type { DiaryEntry, MealId, Nutrients } from '../types';
 import { addDays, relativeLabel, today } from '../lib/dates';
@@ -35,7 +34,7 @@ async function deleteWithUndo(entry: DiaryEntry) {
 
 export function DiaryPage({ date }: { date: string }) {
   const settings = useSettings();
-  const entries = useLiveQuery(() => db.entries.where('date').equals(date).sortBy('createdAt'), [date]);
+  const entries = useDbQuery(() => db.entries.where('date').equals(date).sortBy('createdAt'), [date], NO_ENTRIES);
   const [editing, setEditing] = useState<Editing>(null);
   const dateInput = useRef<HTMLInputElement>(null);
 

@@ -1,5 +1,11 @@
-import { useEffect, useId, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { Icon } from './Icon';
+
+/**
+ * How many sheets are open. Shared so nested sheets lock page scroll once and
+ * release it when the last one closes, in whatever order React unmounts them.
+ */
+let openSheets = 0;
 
 /** A bottom sheet on phones, a centred dialog on wider screens. */
 export function Sheet({
@@ -16,21 +22,32 @@ export function Sheet({
   full?: boolean;
 }) {
   const titleId = useId();
+  const dialog = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
+    openSheets++;
     document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Only the top sheet closes: nested sheets come later in document order.
+      const all = document.querySelectorAll('.sheet');
+      if (all[all.length - 1] === dialog.current) onCloseRef.current();
+    };
+    window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
+      if (--openSheets === 0) document.body.style.overflow = '';
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div
+        ref={dialog}
         className={`sheet${full ? ' sheet-full' : ''}`}
         role="dialog"
         aria-modal="true"

@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import { useSettings } from '../hooks';
+import { NO_ENTRIES, NO_WEIGHTS, useDbQuery, useSettings } from '../hooks';
 import { lastNDays, relativeLabel, shortLabel, today } from '../lib/dates';
-import { fmt, fmtKcal, fmtKg } from '../lib/nutrition';
+import { ZERO, fmt, fmtKcal, fmtKg } from '../lib/nutrition';
 import { CaloriesChart, WeightChart, type DayStat } from '../components/charts';
 import { MACROS, Swatch } from '../components/Macros';
 import { NumberField, Segmented } from '../components/Field';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
+import { WEIGHT_RANGE, isPlausibleWeight } from '../lib/goals';
 
 type Range = '7' | '30' | '90';
 
@@ -19,19 +19,20 @@ export function ProgressPage() {
   const days = useMemo(() => lastNDays(end, Number(range)), [end, range]);
   const from = days[0];
 
-  const entries = useLiveQuery(() => db.entries.where('date').between(from, end, true, true).toArray(), [from, end]);
-  const weights = useLiveQuery(() => db.weights.orderBy('date').toArray(), [], []);
+  const entries = useDbQuery(() => db.entries.where('date').between(from, end, true, true).toArray(), [from, end], NO_ENTRIES);
+  const weights = useDbQuery(() => db.weights.orderBy('date').toArray(), [], NO_WEIGHTS);
 
   const stats: DayStat[] = useMemo(() => {
     const byDay = new Map(days.map((d) => [d, { date: d, kcal: 0, protein: 0, carbs: 0, fat: 0, unattributed: 0 }]));
     for (const e of entries ?? []) {
       const s = byDay.get(e.date);
       if (!s) continue;
-      s.kcal += e.nutrients.kcal;
-      if (e.nutrients.protein + e.nutrients.carbs + e.nutrients.fat === 0) s.unattributed += e.nutrients.kcal;
-      s.protein += e.nutrients.protein;
-      s.carbs += e.nutrients.carbs;
-      s.fat += e.nutrients.fat;
+      const n = e.nutrients ?? ZERO;
+      s.kcal += n.kcal;
+      if (n.protein + n.carbs + n.fat === 0) s.unattributed += n.kcal;
+      s.protein += n.protein;
+      s.carbs += n.carbs;
+      s.fat += n.fat;
     }
     return [...byDay.values()];
   }, [days, entries]);
@@ -165,7 +166,11 @@ function WeightCard({
   const [date, setDate] = useState(today());
 
   const save = async () => {
-    if (!kg || kg <= 0) return;
+    if (!kg) return;
+    if (!isPlausibleWeight(kg)) {
+      toast(`Introduce un peso entre ${WEIGHT_RANGE.min} y ${WEIGHT_RANGE.max} kg`);
+      return;
+    }
     await db.weights.put({ date, kg });
     // Keep the profile's weight current so calculated goals stay sensible.
     const s = await db.settings.get('settings');

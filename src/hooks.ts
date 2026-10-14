@@ -1,10 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { DEFAULT_SETTINGS, getSettings } from './db';
-import type { Settings } from './types';
+import { isStorageError, reportStorageError } from './storage';
+import type { DiaryEntry, Food, Settings, WeightEntry } from './types';
+
+// Stable empty results, so memoised derivations don't recompute while loading.
+export const NO_FOODS: Food[] = [];
+export const NO_ENTRIES: DiaryEntry[] = [];
+export const NO_WEIGHTS: WeightEntry[] = [];
+
+/**
+ * useLiveQuery that never throws storage failures into render (which would
+ * unmount the whole app): they are reported and the fallback is returned.
+ */
+export function useDbQuery<T>(query: () => Promise<T>, deps: unknown[], fallback: T): T {
+  return useLiveQuery(
+    async () => {
+      try {
+        return await query();
+      } catch (err) {
+        if (!isStorageError(err)) throw err;
+        reportStorageError(err);
+        return fallback;
+      }
+    },
+    deps,
+    fallback,
+  );
+}
 
 export function useSettings(): Settings {
-  return useLiveQuery(() => getSettings(), [], DEFAULT_SETTINGS);
+  return useDbQuery(() => getSettings(), [], DEFAULT_SETTINGS);
 }
 
 /** Width of an element, kept current with a ResizeObserver (for responsive SVG charts). */

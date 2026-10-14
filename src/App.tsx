@@ -11,6 +11,8 @@ import { ProgressPage } from './pages/ProgressPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { Icon, type IconName } from './components/Icon';
 import { ToastHost } from './components/Toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { useStorageFailure } from './storage';
 
 const TABS: { path: string; label: string; icon: IconName }[] = [
   { path: '/', label: 'Diario', icon: 'diary' },
@@ -72,7 +74,10 @@ export function App() {
 
   return (
     <>
-      <main className="app-main">{page}</main>
+      <StorageBanner />
+      <main className="app-main">
+        <ErrorBoundary resetKey={route.path}>{page}</ErrorBoundary>
+      </main>
       <nav className="tabbar" aria-label="Secciones">
         {TABS.map((t) => (
           <button
@@ -88,5 +93,22 @@ export function App() {
       </nav>
       <ToastHost />
     </>
+  );
+}
+
+function StorageBanner() {
+  const failure = useStorageFailure();
+  if (!failure) return null;
+  return (
+    <div className="storage-banner" role="alert">
+      <p>
+        <strong>No se pueden leer tus datos ahora mismo.</strong> Suele pasar en Safari al volver a la app tras un rato;
+        recargar lo arregla. Tus datos no se han perdido.
+      </p>
+      <small>{failure}</small>
+      <button className="btn btn-primary" onClick={() => window.location.reload()}>
+        Recargar
+      </button>
+    </div>
   );
 }
