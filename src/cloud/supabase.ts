@@ -4,6 +4,21 @@ import type { Remote, RemoteRecord } from '../sync/engine';
 /** Where the SDK keeps the session (and PKCE verifiers, under keys with this prefix). */
 export const AUTH_STORAGE_KEY = 'macros-auth';
 
+/** Requests give up after this long, so a network that never answers looks offline instead of hanging. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/** fetch with a timeout (AbortController + setTimeout: AbortSignal.any is too new for older iPhones). */
+export const timedFetch: typeof fetch = (input, init = {}) => {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(new TypeError('Failed to fetch (timeout)')), REQUEST_TIMEOUT_MS);
+  const outer = init.signal;
+  if (outer) {
+    if (outer.aborted) ctl.abort(outer.reason);
+    else outer.addEventListener('abort', () => ctl.abort(outer.reason), { once: true });
+  }
+  return fetch(input, { ...init, signal: ctl.signal }).finally(() => clearTimeout(timer));
+};
+
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -14,6 +29,7 @@ const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 export const supabase: SupabaseClient | null =
   url && key
     ? createClient(url, key, {
+        global: { fetch: timedFetch },
         auth: {
           // PKCE puts the email-link result in `?code=`, leaving our `#/…` routes alone.
           flowType: 'pkce',

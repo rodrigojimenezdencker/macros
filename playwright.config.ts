@@ -32,6 +32,8 @@ export default defineConfig({
       url: 'http://localhost:4173',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
+      // Empty values beat a developer's .env.local: this build must stay local-only.
+      env: { VITE_SUPABASE_URL: '', VITE_SUPABASE_PUBLISHABLE_KEY: '' },
     },
     {
       command: 'npx vite build --outDir dist-cloud && npx vite preview --outDir dist-cloud --port 4177 --strictPort',

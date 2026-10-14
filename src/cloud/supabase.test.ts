@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { supabaseRemote } from './supabase';
+import { supabaseRemote, timedFetch } from './supabase';
 
 interface Row {
   kind: string;
@@ -73,5 +73,33 @@ describe('supabaseRemote().pull', () => {
     const { records } = await supabaseRemote(fakeClient(rows, () => {})).pull(null);
     expect(records).toHaveLength(1500);
     expect(new Set(records.map((r) => r.key)).size).toBe(1500);
+  });
+});
+
+describe('timedFetch', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** A server that never answers, but honours abort signals like real fetch. */
+  const hangingFetch = (_input: unknown, init?: RequestInit) =>
+    new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+
+  it('gives up on a request that never answers, as a network failure', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(hangingFetch));
+    const pending = timedFetch('https://x.supabase.co/rest/v1/records');
+    const check = expect(pending).rejects.toThrow(/Failed to fetch/);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await check;
+  });
+
+  it("still honours the caller's own abort", async () => {
+    vi.stubGlobal('fetch', vi.fn(hangingFetch));
+    const ctl = new AbortController();
+    const pending = timedFetch('https://x.supabase.co/auth/v1/token', { signal: ctl.signal });
+    ctl.abort(new DOMException('cancelled', 'AbortError'));
+    await expect(pending).rejects.toThrow('cancelled');
   });
 });

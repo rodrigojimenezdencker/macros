@@ -206,9 +206,10 @@ export function finishRecovery() {
 export async function signOut(opts: { discardPending?: boolean } = {}): Promise<'done' | 'pending'> {
   if (!supabase) return 'done';
   const e = engine;
-  if (e) {
-    await e.sync();
-    if (e.getState().pending > 0 && !opts.discardPending) return 'pending';
+  if (e && !opts.discardPending) {
+    // Upload what's pending, but don't keep the user waiting on a bad network.
+    await Promise.race([e.sync(), new Promise((r) => setTimeout(r, 10_000))]);
+    if (e.getState().pending > 0 || e.getState().status === 'syncing') return 'pending';
   }
   const { error } = await supabase.auth.signOut({ scope: 'local' });
   if (error) {

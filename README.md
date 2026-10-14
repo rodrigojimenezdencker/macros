@@ -14,7 +14,7 @@ App web para registrar lo que comes y seguir tus calorías y macronutrientes, al
 - **Recientes, favoritos y copiar comidas de ayer**, para registrar en segundos lo que comes a menudo.
 - **Calculadora de objetivos** (Mifflin-St Jeor + nivel de actividad + perder/mantener/ganar), o fija tus macros a mano en gramos o porcentajes.
 - **Progreso**: calorías diarias desglosadas por macro, medias de 7/30/90 días y evolución del peso.
-- **Cuenta con correo y contraseña**: tus datos se guardan en tu cuenta y se sincronizan entre dispositivos (con recuperación de contraseña).
+- **Cuenta con correo y contraseña**: tus datos se guardan en tu cuenta y se sincronizan entre dispositivos (con recuperación y cambio de contraseña).
 - **Copia de seguridad** en un archivo JSON para exportar e importar.
 
 ## Usarla en el móvil

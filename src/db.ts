@@ -2,7 +2,7 @@ import Dexie, { type EntityTable, type Table } from 'dexie';
 import type { DiaryEntry, Food, MealId, Settings, WeightEntry } from './types';
 import { DEFAULT_GOALS } from './lib/goals';
 import { addDays } from './lib/dates';
-import { legacyUid, markRemote, newUid, recordsDeletes, stamp, track, type Kind, type Tombstone, type Tracked } from './sync/tracking';
+import { legacyUid, markRemote, markTombstoned, newUid, recordsDeletes, stamp, track, type Kind, type Tombstone, type Tracked } from './sync/tracking';
 
 export interface SettingsRow extends Settings, Tracked {
   key: 'settings';
@@ -198,8 +198,11 @@ const DATA_TABLES = (d: MacrosDB) => [d.foods, d.entries, d.weights, d.settings,
 
 /** Replaces all data with the (already validated) backup's contents. */
 export async function importAll(backup: Pick<Backup, 'foods' | 'entries' | 'weights' | 'settings'>, database = db): Promise<void> {
-  await database.transaction('rw', DATA_TABLES(database), async () => {
-    if (recordsDeletes()) await tombstoneEverything(database);
+  await database.transaction('rw', DATA_TABLES(database), async (tx) => {
+    if (recordsDeletes()) {
+      await tombstoneEverything(database);
+      markTombstoned(tx); // no per-row tombstones from the hooks for the clear() below
+    }
     await Promise.all([database.foods.clear(), database.entries.clear(), database.weights.clear(), database.settings.clear()]);
     // Imported rows are new local changes: they get fresh stamps and win over the tombstones above.
     await database.foods.bulkAdd(backup.foods);
@@ -211,8 +214,11 @@ export async function importAll(backup: Pick<Backup, 'foods' | 'entries' | 'weig
 
 /** Deletes every diary entry, food, weight and setting (also from the account when synced). */
 export async function wipeData(database = db): Promise<void> {
-  await database.transaction('rw', DATA_TABLES(database), async () => {
-    if (recordsDeletes()) await tombstoneEverything(database);
+  await database.transaction('rw', DATA_TABLES(database), async (tx) => {
+    if (recordsDeletes()) {
+      await tombstoneEverything(database);
+      markTombstoned(tx);
+    }
     await Promise.all([database.foods.clear(), database.entries.clear(), database.weights.clear(), database.settings.clear()]);
   });
 }

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import Dexie from 'dexie';
 import { MacrosDB, importAll, rememberFood, saveSettings, wipeData } from '../db';
 import { SyncEngine, type Remote, type RemoteRecord } from './engine';
+import { onLocalChange } from './tracking';
 import type { Food } from '../types';
 
 /** In-memory stand-in for the server: same rules as the SQL function (newer client stamp wins, strictly). */
@@ -331,4 +332,49 @@ describe('SyncEngine robustness', () => {
     await expect(a.db.weights.delete('2001-01-01')).resolves.toBeUndefined();
     await expect(a.db.entries.delete(12345)).resolves.toBeUndefined();
   });
+});
+
+describe('bulk changes while signed in', () => {
+  async function fill(db: MacrosDB, n: number) {
+    await db.entries.bulkAdd(
+      Array.from({ length: n }, (_, i) => ({
+        date: '2026-10-01',
+        meal: 'lunch' as const,
+        name: `E${i}`,
+        amount: 1,
+        nutrients: { kcal: 1, protein: 0, carbs: 0, fat: 0 },
+        createdAt: i,
+      })),
+    );
+  }
+
+  it('wiping many rows notifies once and tombstones every row', async () => {
+    const server = new FakeServer();
+    const a = await device(server);
+    await fill(a.db, 300);
+    await a.engine.sync();
+    let notes = 0;
+    const off = onLocalChange((name) => name === a.db.name && notes++);
+    await wipeData(a.db);
+    expect(await a.db.tombstones.count()).toBe(300); // written with the wipe itself
+    await new Promise((r) => setTimeout(r, 1000)); // let any per-row follow-up writes land
+    off();
+    expect(notes).toBeLessThanOrEqual(2);
+    await a.engine.sync();
+    expect(server.live('user-1')).toHaveLength(0);
+  }, 30_000);
+
+  it('a bulk delete writes all its tombstones in one go', async () => {
+    const server = new FakeServer();
+    const a = await device(server);
+    await fill(a.db, 200);
+    await a.engine.sync();
+    let notes = 0;
+    const off = onLocalChange((name) => name === a.db.name && notes++);
+    await a.db.entries.bulkDelete((await a.db.entries.toArray()).map((e) => e.id!));
+    await new Promise((r) => setTimeout(r, 20));
+    off();
+    expect(notes).toBe(1);
+    expect(await a.db.tombstones.count()).toBe(200);
+  }, 30_000);
 });

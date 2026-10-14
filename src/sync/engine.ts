@@ -124,10 +124,13 @@ export class SyncEngine {
     await this.refreshPending();
   }
 
-  /** Stops syncing; resolves once any sync in progress has finished (so nothing writes after). */
+  /**
+   * Stops syncing. Waits briefly for a sync in progress; a late download is
+   * dropped anyway (see pull), so a slow network never blocks signing out.
+   */
   async stop(): Promise<void> {
     this.dispose();
-    await this.running?.catch(() => {});
+    if (this.running) await Promise.race([this.running.catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
   }
 
   dispose() {

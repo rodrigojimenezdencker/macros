@@ -116,21 +116,40 @@ interface TrackOptions<T> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyTable = Table<any, any, any>;
 
+const NOTIFY = Symbol('macros:notify');
+const PENDING = Symbol('macros:tombstones');
+const COVERED = Symbol('macros:covered');
+
+type TxBag = Record<symbol, unknown>;
+
+/** Marks a transaction whose deletions are already tombstoned (wipe/import): hooks skip them. */
+export function markTombstoned(tx: Transaction | null | undefined) {
+  if (tx) (tx as unknown as TxBag)[COVERED] = true;
+}
+
+/** One notification per transaction, however many rows it touches (bulk imports have thousands). */
+function notifyOnCommit(tx: Transaction, dbName: string) {
+  const bag = tx as unknown as TxBag;
+  if (bag[NOTIFY]) return;
+  bag[NOTIFY] = true;
+  tx.on('complete', () => notify(dbName));
+}
+
 export function track<T extends Tracked>(table: AnyTable, opts: TrackOptions<T>) {
-  const changed = () => notify(table.db.name);
+  const dbName = () => table.db.name;
   table.hook('creating', function (_key, obj: T, tx) {
     if (isRemote(tx)) return;
     if (opts.withUid && !obj.uid) obj.uid = newUid();
     observe(obj.updatedAt); // re-adding a row (undo) must still count as newer
     obj.updatedAt = stamp();
     obj.dirty = 1;
-    this.onsuccess = () => tx.on('complete', changed);
+    notifyOnCommit(tx, dbName());
   });
 
   table.hook('updating', function (mods, _key, obj: T, tx) {
     if (isRemote(tx)) return;
     observe(obj.updatedAt);
-    this.onsuccess = () => tx.on('complete', changed);
+    notifyOnCommit(tx, dbName());
     const extra: Partial<Tracked> = { updatedAt: stamp(), dirty: 1 };
     // A whole-object replace that drops the uid must not cut the row loose from its server copy.
     if (opts.withUid && 'uid' in (mods as object) && !(mods as Tracked).uid) extra.uid = obj.uid ?? newUid();
@@ -139,16 +158,23 @@ export function track<T extends Tracked>(table: AnyTable, opts: TrackOptions<T>)
 
   table.hook('deleting', function (_key, obj: T | undefined, tx) {
     // Deleting a key that isn't there (double tap, already removed by sync) is a no-op.
-    if (isRemote(tx) || !recordDeletes || !obj) return;
+    const bag = tx as unknown as TxBag;
+    if (isRemote(tx) || !recordDeletes || !obj || bag[COVERED]) return;
     const key = opts.keyOf(obj);
     if (!key) return;
     observe(obj.updatedAt);
-    const at = stamp();
-    tx.on('complete', () => {
-      void opts
-        .tombstones()
-        .put({ kind: opts.kind, key, at })
-        .then(changed, () => {});
-    });
+    // Collected per transaction and written in one go after it commits.
+    let batch = bag[PENDING] as Tombstone[] | undefined;
+    if (!batch) {
+      const list: Tombstone[] = [];
+      batch = bag[PENDING] = list;
+      tx.on('complete', () => {
+        void opts
+          .tombstones()
+          .bulkPut(list)
+          .then(() => notify(dbName()), () => {});
+      });
+    }
+    batch.push({ kind: opts.kind, key, at: stamp() });
   });
 }

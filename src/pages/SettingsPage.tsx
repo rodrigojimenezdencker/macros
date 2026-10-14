@@ -11,7 +11,9 @@ import { NumberField, Segmented } from '../components/Field';
 import { MACROS, Swatch } from '../components/Macros';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
-import { cloudEnabled } from '../cloud/supabase';
+import { cloudEnabled, supabase } from '../cloud/supabase';
+import { MIN_PASSWORD_LENGTH, PasswordField, authMessage } from '../cloud/AuthScreen';
+import { Sheet } from '../components/Sheet';
 import { signOut, syncNow, useAuth, useSyncState } from '../cloud/session';
 
 export function SettingsPage() {
@@ -79,6 +81,7 @@ function AccountCard() {
   const auth = useAuth();
   const sync = useSyncState();
   const [busy, setBusy] = useState(false);
+  const [changing, setChanging] = useState(false);
   // Re-render every minute so "hace X min" stays true.
   const [, tick] = useState(0);
   useEffect(() => {
@@ -136,7 +139,53 @@ function AccountCard() {
           <Icon name="logout" size={18} /> Cerrar sesión
         </button>
       </div>
+      <button className="link-btn" onClick={() => setChanging(true)}>
+        Cambiar contraseña
+      </button>
+      {changing && <ChangePasswordSheet onClose={() => setChanging(false)} />}
     </section>
+  );
+}
+
+function ChangePasswordSheet({ onClose }: { onClose: () => void }) {
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!supabase || busy) return;
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Usa una contraseña de al menos ${MIN_PASSWORD_LENGTH} caracteres.`);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const { error } = await supabase.auth.updateUser({ password });
+    setBusy(false);
+    if (error) setError(authMessage(error));
+    else {
+      toast('Contraseña cambiada');
+      onClose();
+    }
+  };
+
+  return (
+    <Sheet
+      title="Cambiar contraseña"
+      onClose={onClose}
+      footer={
+        <button className="btn btn-primary btn-grow" disabled={busy} onClick={() => void save()}>
+          {busy ? 'Un momento…' : 'Guardar contraseña'}
+        </button>
+      }
+    >
+      <PasswordField label="Contraseña nueva" value={password} onChange={setPassword} autoComplete="new-password" />
+      {error && (
+        <p className="auth-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Sheet>
   );
 }
 
@@ -367,6 +416,9 @@ function CalculatorCard({ profile }: { profile?: Profile }) {
 
 function BackupCard() {
   const fileInput = useRef<HTMLInputElement>(null);
+  const sync = useSyncState();
+  // Replacing or wiping before the account's data has arrived would miss what is still on its way.
+  const waiting = cloudEnabled && !sync?.hasPulled;
 
   const doExport = async () => {
     const data = await exportAll();
@@ -394,7 +446,8 @@ function BackupCard() {
     }
     const clean = sanitizeBackup(data);
     const note = clean.skipped ? ` Se omitirán ${clean.skipped} registros dañados.` : '';
-    if (!confirm(`Esto sustituirá todos tus datos actuales por los de la copia (${clean.entries.length} registros).${note} ¿Continuar?`)) return;
+    const scope = cloudEnabled ? ' También en tu cuenta y en todos tus dispositivos.' : '';
+    if (!confirm(`Esto sustituirá todos tus datos actuales por los de la copia (${clean.entries.length} registros).${scope}${note} ¿Continuar?`)) return;
     try {
       await importAll(clean);
       toast(clean.skipped ? `Copia restaurada (${clean.skipped} registros omitidos)` : 'Copia restaurada');
@@ -421,7 +474,7 @@ function BackupCard() {
         <button className="btn" onClick={() => void doExport()}>
           <Icon name="download" size={18} /> Exportar
         </button>
-        <button className="btn" onClick={() => fileInput.current?.click()}>
+        <button className="btn" onClick={() => fileInput.current?.click()} disabled={waiting}>
           <Icon name="upload" size={18} /> Importar
         </button>
         <input
@@ -436,9 +489,10 @@ function BackupCard() {
           }}
         />
       </div>
-      <button className="btn btn-danger-ghost" onClick={() => void wipe()}>
+      <button className="btn btn-danger-ghost" onClick={() => void wipe()} disabled={waiting}>
         <Icon name="trash" size={18} /> Borrar todos los datos
       </button>
+      {waiting && <p className="muted small">Importar y borrar estarán disponibles cuando se descarguen los datos de tu cuenta.</p>}
     </section>
   );
 }

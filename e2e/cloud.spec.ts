@@ -17,7 +17,7 @@ async function signIn(page: Page, mode: 'Entrar' | 'Crear cuenta' = 'Entrar') {
   await page.goto('/');
   if (mode === 'Crear cuenta') await page.getByRole('radio', { name: 'Crear cuenta' }).click();
   await page.getByLabel('Correo electrónico').fill(EMAIL);
-  await page.getByLabel('Contraseña').fill(PASSWORD);
+  await page.getByLabel('Contraseña', { exact: true }).fill(PASSWORD);
   await page.locator('form').getByRole('button', { name: mode }).click();
   await expect(page.getByRole('button', { name: 'Hoy' })).toBeVisible();
 }
@@ -77,7 +77,7 @@ test('wrong password shows a clear message', async ({ browser }) => {
   const { page } = await newDevice(browser, server);
   await page.goto('/');
   await page.getByLabel('Correo electrónico').fill(EMAIL);
-  await page.getByLabel('Contraseña').fill('mala');
+  await page.getByLabel('Contraseña', { exact: true }).fill('mala');
   await page.locator('form').getByRole('button', { name: 'Entrar' }).click();
   await expect(page.getByRole('alert')).toHaveText('Correo o contraseña incorrectos.');
 });
@@ -190,7 +190,7 @@ test('resets a forgotten password with the emailed code', async ({ browser }) =>
   await page.getByLabel('Código del correo').fill('123456');
   await page.getByRole('button', { name: 'Comprobar código' }).click();
   await expect(page.getByRole('heading', { name: 'Elige una contraseña nueva' })).toBeVisible();
-  await page.getByLabel('Contraseña nueva').fill(PASSWORD);
+  await page.getByLabel('Contraseña nueva', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Guardar contraseña' }).click();
   await expect(page.getByRole('button', { name: 'Hoy' })).toBeVisible();
   expect(server.users[0].password).toBe(PASSWORD);
@@ -204,7 +204,7 @@ test('signing up with an address that already has an account says so', async ({ 
   await page.goto('/');
   await page.getByRole('radio', { name: 'Crear cuenta' }).click();
   await page.getByLabel('Correo electrónico').fill(EMAIL);
-  await page.getByLabel('Contraseña').fill('otra-contraseña-larga');
+  await page.getByLabel('Contraseña', { exact: true }).fill('otra-contraseña-larga');
   await page.locator('form').getByRole('button', { name: 'Crear cuenta' }).click();
   await expect(page.getByRole('alert')).toHaveText(/Ya existe una cuenta con ese correo/);
 });
@@ -215,4 +215,36 @@ test('an expired email link is explained and removed from the address bar', asyn
   await page.goto('/?error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired#/');
   await expect(page.getByRole('alert')).toHaveText('El enlace ha caducado o ya se usó. Pide uno nuevo.');
   expect(new URL(page.url()).search).toBe('');
+});
+
+test('changes the password from Ajustes', async ({ browser }) => {
+  const server = new FakeSupabase();
+  const { page } = await newDevice(browser, server);
+  await signIn(page, 'Crear cuenta');
+  await page.getByRole('navigation', { name: 'Secciones' }).getByRole('button', { name: 'Ajustes' }).click();
+  await page.getByRole('button', { name: 'Cambiar contraseña' }).click();
+  await page.getByLabel('Contraseña nueva', { exact: true }).fill('otra-contraseña-segura');
+  await page.getByRole('dialog').getByRole('button', { name: 'Guardar contraseña' }).click();
+  await expect(page.getByText('Contraseña cambiada')).toBeVisible();
+  expect(server.users[0].password).toBe('otra-contraseña-segura');
+});
+
+test('wipe and import wait until the account has been downloaded', async ({ browser }) => {
+  const server = new FakeSupabase();
+  server.users.push({ id: crypto.randomUUID(), email: EMAIL, password: PASSWORD });
+  const { page } = await newDevice(browser, server);
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  // Hold the first download back (page routes take precedence over the fake's context route).
+  await page.route('**/rest/v1/records**', async (route) => {
+    await held;
+    await route.fallback();
+  });
+  await signIn(page);
+  await expect(page.getByText('Descargando tus datos de la cuenta…')).toBeVisible();
+  await page.getByRole('navigation', { name: 'Secciones' }).getByRole('button', { name: 'Ajustes' }).click();
+  await expect(page.getByRole('button', { name: 'Borrar todos los datos' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Importar' })).toBeDisabled();
+  release();
+  await expect(page.getByRole('button', { name: 'Borrar todos los datos' })).toBeEnabled({ timeout: 10_000 });
 });

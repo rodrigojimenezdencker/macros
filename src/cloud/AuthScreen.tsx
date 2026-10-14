@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import type { AuthError } from '@supabase/supabase-js';
 import { Segmented } from '../components/Field';
 import { appUrl, supabase } from './supabase';
@@ -45,7 +45,7 @@ function Brand() {
   );
 }
 
-function PasswordField({
+export function PasswordField({
   label,
   value,
   onChange,
@@ -57,11 +57,16 @@ function PasswordField({
   autoComplete: 'current-password' | 'new-password';
 }) {
   const [show, setShow] = useState(false);
+  const id = useId();
+  // The show/hide button sits outside the <label>, so the field's name stays just the label.
   return (
-    <label className="field">
-      <span className="field-label">{label}</span>
+    <div className="field">
+      <label className="field-label" htmlFor={id}>
+        {label}
+      </label>
       <span className="field-input">
         <input
+          id={id}
           type={show ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -69,13 +74,21 @@ function PasswordField({
           required
           minLength={autoComplete === 'new-password' ? MIN_PASSWORD : undefined}
         />
-        <button type="button" className="link-btn" onClick={() => setShow((s) => !s)} aria-pressed={show}>
+        <button
+          type="button"
+          className="link-btn"
+          onClick={() => setShow((s) => !s)}
+          aria-pressed={show}
+          aria-label={show ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+        >
           {show ? 'Ocultar' : 'Mostrar'}
         </button>
       </span>
-    </label>
+    </div>
   );
 }
+
+export const MIN_PASSWORD_LENGTH = MIN_PASSWORD;
 
 /** Sign in, create an account, or ask for a password-reset email. */
 export function AuthScreen() {
@@ -188,6 +201,7 @@ export function AuthScreen() {
               <input
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                autoFocus
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\s/g, ''))}
                 required
