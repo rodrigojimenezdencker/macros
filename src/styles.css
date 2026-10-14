@@ -1394,6 +1394,20 @@ h3 {
   word-break: break-word;
   color: var(--ink-2);
 }
+.crash-more summary {
+  font-size: 0.85rem;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.crash-more .crash-detail {
+  margin-top: 8px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.crash .btn-row {
+  flex-wrap: wrap;
+}
+
 .storage-banner {
   position: sticky;
   top: 0;

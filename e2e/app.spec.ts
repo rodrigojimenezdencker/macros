@@ -159,3 +159,20 @@ test('scanning a known barcode opens the product', async ({ page }) => {
   await page.getByRole('button', { name: 'Buscar', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Nutella' })).toBeVisible();
 });
+
+test('switching sections works when scrollTo returns a Promise (Chrome/Edge 150+)', async ({ page }) => {
+  // Guard: the browser under test really has the new scroll behaviour.
+  expect(await page.evaluate(() => String(window.scrollTo(0, 0)))).toBe('[object Promise]');
+  const tabs = page.getByRole('navigation', { name: 'Secciones' });
+  for (const [tab, heading] of [
+    ['Alimentos', 'Alimentos'],
+    ['Progreso', 'Progreso'],
+    ['Ajustes', 'Ajustes'],
+  ]) {
+    await tabs.getByRole('button', { name: tab }).click();
+    await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+  }
+  await tabs.getByRole('button', { name: 'Diario' }).click();
+  await expect(page.getByRole('button', { name: 'Hoy' })).toBeVisible();
+  await expect(page.getByText('Algo ha fallado')).toHaveCount(0);
+});

@@ -5,9 +5,14 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 // BASE_PATH lets the GitHub Pages build live under /<repo>/.
 const base = process.env.BASE_PATH ?? '/';
+// Shown in error reports, so a crash can be matched to the exact published build.
+const version = process.env.GITHUB_SHA?.slice(0, 7) ?? 'local';
 
 export default defineConfig({
   base,
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
+  },
   plugins: [
     react(),
     VitePWA({

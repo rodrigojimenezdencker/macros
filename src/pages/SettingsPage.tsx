@@ -55,6 +55,7 @@ export function SettingsPage() {
           </a>
           , bajo licencia ODbL.
         </p>
+        <p className="small muted">Versión {__APP_VERSION__}</p>
       </section>
     </div>
   );
