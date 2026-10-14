@@ -30,7 +30,11 @@ export function App() {
   const [first, second] = route.segments;
   const date = isDate(route.params.get('d')) ? route.params.get('d')! : today();
 
-  useEffect(() => window.scrollTo(0, 0), [route.path]);
+  // Block body on purpose: newer browsers make scrollTo() return a Promise,
+  // and React would then try to call it as the effect's cleanup.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [route.path]);
 
   let page;
   let tab = '/';
