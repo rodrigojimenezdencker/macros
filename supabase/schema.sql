@@ -60,15 +60,31 @@ create trigger records_touch
 
 -- Upload a batch from a device. A row is only replaced by a strictly newer
 -- change, so an old offline device can never overwrite newer data, and
--- re-sending the same change is a no-op.
+-- re-sending the same change is a no-op. A per-user row limit keeps one
+-- account from filling the database (tune with: alter database postgres set
+-- macros.max_records = '...').
 create or replace function public.push_records(records jsonb)
 returns void
-language sql
+language plpgsql
 security invoker
 set search_path = ''
 as $$
+declare
+  me uuid := (select auth.uid());
+  quota bigint := coalesce(nullif(current_setting('macros.max_records', true), '')::bigint, 200000);
+begin
+  if me is null then
+    raise exception 'not signed in' using errcode = '28000';
+  end if;
+  if jsonb_typeof(records) <> 'array' or jsonb_array_length(records) > 1000 then
+    raise exception 'upload must be an array of at most 1000 records' using errcode = '22023';
+  end if;
+  if (select count(*) from public.records r where r.user_id = me) + jsonb_array_length(records) > quota then
+    raise exception 'storage quota exceeded' using errcode = '53400';
+  end if;
+
   insert into public.records as r (user_id, kind, key, data, deleted, client_updated_at)
-  select (select auth.uid()),
+  select me,
          x.kind,
          x.key,
          case when coalesce(x.deleted, false) then null else x.data end,
@@ -80,6 +96,7 @@ as $$
         deleted = excluded.deleted,
         client_updated_at = excluded.client_updated_at
     where r.client_updated_at < excluded.client_updated_at;
+end;
 $$;
 
 revoke execute on function public.push_records(jsonb) from public, anon;

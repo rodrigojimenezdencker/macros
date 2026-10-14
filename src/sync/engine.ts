@@ -1,6 +1,6 @@
 import type { MacrosDB, SettingsRow, SyncMeta } from '../db';
 import type { DiaryEntry, Food, WeightEntry } from '../types';
-import { markRemote, onLocalChange, setRecordDeletes, type Kind, type Tombstone, type Tracked } from './tracking';
+import { markRemote, observe, onLocalChange, setRecordDeletes, type Kind, type Tombstone, type Tracked } from './tracking';
 
 /**
  * Two-way sync between this device's IndexedDB and the account's rows on the
@@ -58,6 +58,19 @@ function strip(kind: Kind, input: object): Record<string, unknown> {
   return data;
 }
 
+/** JSON with sorted keys, to compare records regardless of property order. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v)
+      .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+
 function isOffline(err: unknown): boolean {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
   const msg = String((err as Error)?.message ?? err);
@@ -109,6 +122,12 @@ export class SyncEngine {
     setRecordDeletes(true);
     this.stopTracking = onLocalChange((name) => name === this.db.name && this.schedule());
     await this.refreshPending();
+  }
+
+  /** Stops syncing; resolves once any sync in progress has finished (so nothing writes after). */
+  async stop(): Promise<void> {
+    this.dispose();
+    await this.running?.catch(() => {});
   }
 
   dispose() {
@@ -207,7 +226,7 @@ export class SyncEngine {
     for (let i = 0; i < records.length; i += PUSH_BATCH) {
       await this.remote.push(records.slice(i, i + PUSH_BATCH));
     }
-    if (records.length === 0 && tombstones.length === 0) return;
+    if ((records.length === 0 && tombstones.length === 0) || this.disposed) return;
 
     // Mark uploaded rows clean, unless they changed again while we were uploading.
     await db.transaction('rw', [db.foods, db.entries, db.weights, db.settings, db.tombstones], async (tx) => {
@@ -238,8 +257,10 @@ export class SyncEngine {
     if (since) since = new Date(new Date(since).getTime() - PULL_OVERLAP_MS).toISOString();
 
     const { records, cursor } = await this.remote.pull(since);
+    // Signed out while downloading: the account's data must not land on this device.
+    if (this.disposed) return;
     if (records.length > 0) {
-      await db.transaction('rw', [db.foods, db.entries, db.weights, db.settings, db.tombstones], async (tx) => {
+      await db.transaction('rw', [db.foods, db.entries, db.weights, db.settings, db.tombstones, db.meta], async (tx) => {
         markRemote(tx);
         for (const rec of records) await this.apply(rec);
       });
@@ -254,6 +275,7 @@ export class SyncEngine {
   /** Applies one server record inside a remote-marked transaction. */
   private async apply(rec: RemoteRecord) {
     const db = this.db;
+    observe(rec.client_updated_at);
     const tomb = await db.tombstones.get([rec.kind, rec.key]);
     if (tomb && tomb.at >= rec.client_updated_at) return; // our deletion is newer
 
@@ -263,8 +285,15 @@ export class SyncEngine {
     else if (rec.kind === 'weight') local = await db.weights.get(rec.key);
     else local = await db.settings.get('settings');
 
-    // We already have this version, or a newer one of our own waiting to go up.
-    if (local && (local.updatedAt ?? 0) >= rec.client_updated_at) return;
+    const localAt = local?.updatedAt ?? 0;
+    // Ours is newer (and waiting to go up, or already up).
+    if (local && localAt > rec.client_updated_at) return;
+    // Same version. Equal stamps with different contents only happen for data
+    // that predates sync on two devices; then the account's copy wins.
+    if (local && localAt === rec.client_updated_at) {
+      if (local.dirty) return;
+      if (!rec.deleted && rec.data && canonical(strip(rec.kind, local)) === canonical(rec.data)) return;
+    }
     if (tomb) await db.tombstones.delete([rec.kind, rec.key]);
 
     const synced = { updatedAt: rec.client_updated_at, dirty: 0 as const };

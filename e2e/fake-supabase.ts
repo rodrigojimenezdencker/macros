@@ -29,6 +29,10 @@ const b64url = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64ur
 export class FakeSupabase {
   users: User[] = [];
   rows = new Map<string, Map<string, Row>>();
+  /** Like a project with "Confirm email" on: sign-up returns no session. */
+  confirmEmail = false;
+  /** Recovery codes "emailed" by /recover, by address. */
+  recoveryCodes = new Map<string, string>();
   private clock = Date.UTC(2026, 9, 14, 8);
   private tokens = new Map<string, string>(); // refresh token -> user id
 
@@ -103,10 +107,14 @@ export class FakeSupabase {
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204 });
 
     if (path === '/auth/v1/signup') {
-      if (this.users.some((u) => u.email === body.email)) return this.error(route, 422, 'user_already_exists', 'User already registered');
+      const existing = this.users.find((u) => u.email === body.email);
+      // With confirmation on, GoTrue hides that the address is taken: a fake user with no identities.
+      if (existing && this.confirmEmail) return route.fulfill({ json: { ...this.userJson(existing), identities: [] } });
+      if (existing) return this.error(route, 422, 'user_already_exists', 'User already registered');
       if (String(body.password).length < 8) return this.error(route, 422, 'weak_password', 'Password should be at least 8 characters.');
       const user = { id: crypto.randomUUID(), email: body.email, password: body.password };
       this.users.push(user);
+      if (this.confirmEmail) return route.fulfill({ json: { ...this.userJson(user), identities: [{ id: user.id, provider: 'email' }] } });
       return route.fulfill({ json: this.session(user) });
     }
     if (path === '/auth/v1/token') {
@@ -123,12 +131,27 @@ export class FakeSupabase {
         return route.fulfill({ json: this.session(user) });
       }
     }
-    if (path === '/auth/v1/user') {
+    if (path === '/auth/v1/user' && req.method() === 'GET') {
       const user = this.userFromAuth(route);
       return user ? route.fulfill({ json: this.userJson(user) }) : this.error(route, 401, 'bad_jwt', 'invalid JWT');
     }
     if (path === '/auth/v1/logout') return route.fulfill({ status: 204 });
-    if (path === '/auth/v1/recover') return route.fulfill({ json: {} });
+    if (path === '/auth/v1/recover') {
+      if (this.users.some((u) => u.email === body.email)) this.recoveryCodes.set(body.email, '123456');
+      return route.fulfill({ json: {} });
+    }
+    if (path === '/auth/v1/verify' && body?.type === 'recovery') {
+      const user = this.users.find((u) => u.email === body.email);
+      if (!user || this.recoveryCodes.get(body.email) !== body.token) return this.error(route, 403, 'otp_expired', 'Token has expired or is invalid');
+      this.recoveryCodes.delete(body.email);
+      return route.fulfill({ json: this.session(user) });
+    }
+    if (path === '/auth/v1/user' && req.method() === 'PUT') {
+      const user = this.userFromAuth(route);
+      if (!user) return this.error(route, 401, 'bad_jwt', 'invalid JWT');
+      if (body.password) user.password = body.password;
+      return route.fulfill({ json: this.userJson(user) });
+    }
 
     if (path === '/rest/v1/rpc/push_records') {
       const user = this.userFromAuth(route);
@@ -155,11 +178,16 @@ export class FakeSupabase {
     if (path === '/rest/v1/records' && req.method() === 'GET') {
       const user = this.userFromAuth(route);
       if (!user) return route.fulfill({ status: 401, json: { message: 'permission denied' } });
-      const gt = url.searchParams.get('server_updated_at')?.replace(/^gt\./, '');
+      const filter = url.searchParams.get('server_updated_at') ?? '';
+      const [op, value] = filter ? [filter.slice(0, filter.indexOf('.')), filter.slice(filter.indexOf('.') + 1)] : ['', ''];
       const offset = Number(url.searchParams.get('offset') ?? 0);
       const limit = Number(url.searchParams.get('limit') ?? 1000);
       const rows = [...(this.rows.get(user.id)?.values() ?? [])]
-        .filter((r) => !gt || Date.parse(r.server_updated_at) > Date.parse(gt))
+        .filter((r) => {
+          if (!op) return true;
+          const d = Date.parse(r.server_updated_at) - Date.parse(value);
+          return op === 'gte' ? d >= 0 : d > 0;
+        })
         .sort((a, b) => a.server_updated_at.localeCompare(b.server_updated_at) || a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key))
         .slice(offset, offset + limit);
       return route.fulfill({ json: rows });

@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
+import Dexie from 'dexie';
 import { MacrosDB, importAll, rememberFood, saveSettings, wipeData } from '../db';
 import { SyncEngine, type Remote, type RemoteRecord } from './engine';
 import type { Food } from '../types';
@@ -238,5 +239,96 @@ describe('SyncEngine', () => {
     await wipeData(a.db);
     await a.engine.sync();
     expect(server.live('user-1')).toHaveLength(0);
+  });
+});
+
+describe('SyncEngine robustness', () => {
+  it("an edit beats the version it edits even if this device's clock is behind", async () => {
+    const server = new FakeServer();
+    const b = await device(server);
+    // Another device with a clock 10 minutes fast wrote this entry.
+    await server.remote('user-1').push([
+      {
+        kind: 'entry',
+        key: 'fast-clock',
+        data: { date: '2026-10-14', meal: 'lunch', name: 'Arroz', amount: 100, nutrients: { kcal: 350, protein: 7, carbs: 78, fat: 1 }, createdAt: 1 },
+        deleted: false,
+        client_updated_at: Date.now() + 10 * 60_000,
+      },
+    ]);
+    await b.engine.sync();
+    const id = (await b.db.entries.toArray())[0].id!;
+    await b.db.entries.update(id, { amount: 150 });
+    await b.engine.sync();
+    expect(server.live('user-1')[0].data!.amount).toBe(150);
+
+    await b.db.entries.delete(id);
+    await new Promise((r) => setTimeout(r, 5));
+    await b.engine.sync();
+    expect(server.live('user-1')).toHaveLength(0);
+  });
+
+  it('data from before sync never overwrites the account, and identical old rows merge', async () => {
+    const server = new FakeServer();
+    const v1 = async (name: string, kcal: number, kg: number) => {
+      const old = new Dexie(name);
+      old.version(1).stores({ foods: '++id, name, barcode, source, lastUsedAt', entries: '++id, date, [date+meal]', weights: 'date', settings: 'key' });
+      await old.open();
+      await old.table('settings').put({ key: 'settings', offCountry: 'es', goals: { kcal, protein: 150, carbs: 200, fat: 70 } });
+      await old.table('weights').put({ date: '2026-10-01', kg });
+      // The same diary entry on both devices (e.g. restored from one backup).
+      await old.table('entries').add({ date: '2026-10-01', meal: 'lunch', name: 'Paella', amount: 300, nutrients: { kcal: 600, protein: 20, carbs: 70, fat: 25 }, createdAt: 1727780000000 });
+      old.close();
+      return new MacrosDB(name);
+    };
+    const desktop = await device(server, 'user-1', await v1(`desk-${Math.random()}`, 2500, 80));
+    await desktop.engine.sync();
+    const phone = await device(server, 'user-1', await v1(`phone-${Math.random()}`, 1800, 95));
+    await phone.engine.sync();
+    await desktop.engine.sync();
+
+    const settings = server.live('user-1').find((r) => r.kind === 'settings')!;
+    expect((settings.data as { goals: { kcal: number } }).goals.kcal).toBe(2500);
+    expect((await phone.db.settings.get('settings'))?.goals.kcal).toBe(2500);
+    expect((await phone.db.weights.get('2026-10-01'))?.kg).toBe(80);
+    expect(server.live('user-1').filter((r) => r.kind === 'entry')).toHaveLength(1);
+    expect(await phone.db.entries.count()).toBe(1);
+  });
+
+  it('signing out mid-download leaves nothing behind', async () => {
+    const server = new FakeServer();
+    const a = await device(server);
+    await logRice(a.db);
+    await a.engine.sync();
+
+    const db = new MacrosDB(`dev-${Math.random()}`);
+    await db.open();
+    let release!: () => void;
+    const slow: Remote = {
+      push: (r) => server.remote('user-1').push(r),
+      pull: async (since) => {
+        await new Promise<void>((r) => (release = r));
+        return server.remote('user-1').pull(since);
+      },
+    };
+    const b = new SyncEngine(db, slow, 'user-1');
+    await b.start();
+    const running = b.sync();
+    await new Promise((r) => setTimeout(r, 5));
+    // Worst order: the device is cleared while the download is still in flight.
+    b.dispose();
+    await b.clearLocal();
+    release();
+    await running;
+    expect(await db.entries.count()).toBe(0);
+    expect(await db.foods.count()).toBe(0);
+    db.close();
+  });
+
+  it('deleting something that is already gone is a no-op while syncing', async () => {
+    const server = new FakeServer();
+    const a = await device(server);
+    await expect(a.db.weights.delete('2001-01-01')).resolves.toBeUndefined();
+    await expect(a.db.entries.delete(12345)).resolves.toBeUndefined();
   });
 });

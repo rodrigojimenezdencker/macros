@@ -150,3 +150,69 @@ test('data saved on this device before accounts existed is uploaded on first sig
     .poll(() => server.recordsOf(EMAIL).map((r) => r.kind).sort(), { timeout: 10_000 })
     .toEqual(['entry', 'weight']);
 });
+
+test('opens offline with an expired session and syncs when the network returns', async ({ browser }) => {
+  const server = new FakeSupabase();
+  const { context, page } = await newDevice(browser, server);
+  await signIn(page, 'Crear cuenta');
+  await quickAdd(page, 'Cocido', '700');
+  await expect.poll(() => server.recordsOf(EMAIL).length, { timeout: 10_000 }).toBeGreaterThan(0);
+
+  // An hour later, no signal: the stored access token has expired and refreshing needs the network.
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('macros-auth')!);
+    s.expires_at = Math.floor(Date.now() / 1000) - 60;
+    localStorage.setItem('macros-auth', JSON.stringify(s));
+  });
+  await context.unroute('https://fake-project.supabase.test/**');
+  await context.route('https://fake-project.supabase.test/**', (route) => route.abort('internetdisconnected'));
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Comida' }).getByText('Cocido')).toBeVisible({ timeout: 10_000 });
+  await quickAdd(page, 'Fruta', '90'); // still usable offline
+
+  // Back online: the change made offline reaches the account.
+  await context.unroute('https://fake-project.supabase.test/**');
+  await server.install(context);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect
+    .poll(() => server.recordsOf(EMAIL).filter((r) => r.kind === 'entry').length, { timeout: 20_000 })
+    .toBe(2);
+});
+
+test('resets a forgotten password with the emailed code', async ({ browser }) => {
+  const server = new FakeSupabase();
+  server.users.push({ id: crypto.randomUUID(), email: EMAIL, password: 'olvidada-hace-tiempo' });
+  const { page } = await newDevice(browser, server);
+  await page.goto('/');
+  await page.getByRole('button', { name: '¿Has olvidado tu contraseña?' }).click();
+  await page.getByLabel('Correo electrónico').fill(EMAIL);
+  await page.getByRole('button', { name: 'Enviar código' }).click();
+  await page.getByLabel('Código del correo').fill('123456');
+  await page.getByRole('button', { name: 'Comprobar código' }).click();
+  await expect(page.getByRole('heading', { name: 'Elige una contraseña nueva' })).toBeVisible();
+  await page.getByLabel('Contraseña nueva').fill(PASSWORD);
+  await page.getByRole('button', { name: 'Guardar contraseña' }).click();
+  await expect(page.getByRole('button', { name: 'Hoy' })).toBeVisible();
+  expect(server.users[0].password).toBe(PASSWORD);
+});
+
+test('signing up with an address that already has an account says so', async ({ browser }) => {
+  const server = new FakeSupabase();
+  server.confirmEmail = true;
+  server.users.push({ id: crypto.randomUUID(), email: EMAIL, password: PASSWORD });
+  const { page } = await newDevice(browser, server);
+  await page.goto('/');
+  await page.getByRole('radio', { name: 'Crear cuenta' }).click();
+  await page.getByLabel('Correo electrónico').fill(EMAIL);
+  await page.getByLabel('Contraseña').fill('otra-contraseña-larga');
+  await page.locator('form').getByRole('button', { name: 'Crear cuenta' }).click();
+  await expect(page.getByRole('alert')).toHaveText(/Ya existe una cuenta con ese correo/);
+});
+
+test('an expired email link is explained and removed from the address bar', async ({ browser }) => {
+  const server = new FakeSupabase();
+  const { page } = await newDevice(browser, server);
+  await page.goto('/?error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired#/');
+  await expect(page.getByRole('alert')).toHaveText('El enlace ha caducado o ya se usó. Pide uno nuevo.');
+  expect(new URL(page.url()).search).toBe('');
+});

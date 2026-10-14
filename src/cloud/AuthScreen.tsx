@@ -2,15 +2,18 @@ import { useState, type FormEvent } from 'react';
 import type { AuthError } from '@supabase/supabase-js';
 import { Segmented } from '../components/Field';
 import { appUrl, supabase } from './supabase';
-import { finishRecovery } from './session';
+import { dismissLinkNotice, finishRecovery, useLinkNotice } from './session';
 
 type Mode = 'signin' | 'signup' | 'reset';
 
 const MIN_PASSWORD = 8;
 
 /** Supabase's messages are English and technical; say what to do instead. */
-export function authMessage(err: Pick<AuthError, 'message'> & { status?: number; code?: string }): string {
+export function authMessage(err: Pick<AuthError, 'message'> & { status?: number; code?: string; name?: string }): string {
   const m = err.message.toLowerCase();
+  // Network failures: Chrome says "Failed to fetch", Safari "Load failed", Firefox "NetworkError…".
+  if (err.name === 'AuthRetryableFetchError' || err.status === 0 || /failed to fetch|load failed|networkerror|network/.test(m))
+    return 'No hay conexión. Comprueba tu red y vuelve a intentarlo.';
   if (err.code === 'invalid_credentials' || m.includes('invalid login credentials')) return 'Correo o contraseña incorrectos.';
   if (err.code === 'email_not_confirmed' || m.includes('email not confirmed'))
     return 'Aún no has confirmado tu correo. Busca el enlace que te enviamos al crear la cuenta.';
@@ -19,8 +22,16 @@ export function authMessage(err: Pick<AuthError, 'message'> & { status?: number;
     return `La contraseña es demasiado débil: usa al menos ${MIN_PASSWORD} caracteres.`;
   if (err.code === 'same_password') return 'La contraseña nueva debe ser distinta de la anterior.';
   if (err.status === 429 || m.includes('rate limit')) return 'Demasiados intentos seguidos. Espera unos minutos y vuelve a probar.';
-  if (m.includes('failed to fetch') || m.includes('network')) return 'No hay conexión. Comprueba tu red y vuelve a intentarlo.';
-  if (m.includes('invalid email') || m.includes('unable to validate email')) return 'Ese correo no parece válido.';
+  if (err.code === 'otp_expired' || (m.includes('token') && (m.includes('expired') || m.includes('invalid'))))
+    return 'El código no es válido o ha caducado. Pide uno nuevo.';
+  if (
+    err.code === 'email_address_invalid' ||
+    err.code === 'validation_failed' ||
+    m.includes('invalid email') ||
+    m.includes('unable to validate email') ||
+    (m.includes('email address') && m.includes('invalid'))
+  )
+    return 'Ese correo no parece válido.';
   return `No se ha podido completar: ${err.message}`;
 }
 
@@ -74,13 +85,28 @@ export function AuthScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
+  const [code, setCode] = useState('');
+  const notice = useLinkNotice();
+
+  const verifyCode = async () => {
+    if (!supabase || busy) return;
+    setBusy(true);
+    setError(null);
+    // On success the SDK reports a password recovery and the "new password" screen opens.
+    const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'recovery' });
+    setBusy(false);
+    if (error) setError(authMessage(error));
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!supabase || busy) return;
+    if (mode === 'reset' && resetSent) return void verifyCode();
     setBusy(true);
     setError(null);
     setInfo(null);
+    dismissLinkNotice();
     try {
       if (mode === 'signin') {
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
@@ -96,17 +122,20 @@ export function AuthScreen() {
           options: { emailRedirectTo: appUrl() },
         });
         if (error) setError(authMessage(error));
+        // Supabase hides whether an email is registered: an existing account comes back with no identities.
+        else if (data.user && data.user.identities?.length === 0)
+          setError('Ya existe una cuenta con ese correo. Entra con tu contraseña o recupérala.');
         else if (!data.session)
-          setInfo(
-            `Te hemos enviado un correo a ${email.trim()}. Pulsa el enlace para activar tu cuenta; ábrelo en este mismo navegador.`,
-          );
+          setInfo(`Te hemos enviado un correo a ${email.trim()}. Pulsa el enlace para activar tu cuenta y después entra aquí.`);
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: appUrl() });
         if (error) setError(authMessage(error));
-        else
+        else {
+          setResetSent(true);
           setInfo(
-            'Si existe una cuenta con ese correo, te llegará un enlace para elegir una contraseña nueva. Ábrelo en este mismo navegador.',
+            'Si existe una cuenta con ese correo, te llegará un mensaje. Escribe aquí el código que trae, o abre su enlace en este mismo navegador.',
           );
+        }
       }
     } catch (err) {
       setError(authMessage({ message: String((err as Error)?.message ?? err) }));
@@ -119,6 +148,9 @@ export function AuthScreen() {
     setMode(m);
     setError(null);
     setInfo(null);
+    setResetSent(false);
+    setCode('');
+    dismissLinkNotice();
   };
 
   return (
@@ -144,6 +176,25 @@ export function AuthScreen() {
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
           </span>
         </label>
+        {notice && (
+          <p className={notice.kind === 'error' ? 'auth-error' : 'auth-info'} role={notice.kind === 'error' ? 'alert' : 'status'}>
+            {notice.text}
+          </p>
+        )}
+        {mode === 'reset' && resetSent && (
+          <label className="field">
+            <span className="field-label">Código del correo</span>
+            <span className="field-input">
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\s/g, ''))}
+                required
+              />
+            </span>
+          </label>
+        )}
         {mode !== 'reset' && (
           <PasswordField
             label="Contraseña"
@@ -163,7 +214,15 @@ export function AuthScreen() {
           </p>
         )}
         <button className="btn btn-primary" disabled={busy}>
-          {busy ? 'Un momento…' : mode === 'signin' ? 'Entrar' : mode === 'signup' ? 'Crear cuenta' : 'Enviar enlace'}
+          {busy
+            ? 'Un momento…'
+            : mode === 'signin'
+              ? 'Entrar'
+              : mode === 'signup'
+                ? 'Crear cuenta'
+                : resetSent
+                  ? 'Comprobar código'
+                  : 'Enviar código'}
         </button>
         {mode === 'signin' && (
           <button type="button" className="link-btn center" onClick={() => switchMode('reset')}>

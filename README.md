@@ -45,15 +45,15 @@ La app guarda los datos en [Supabase](https://supabase.com) (base de datos Postg
 3. **Configura el inicio de sesión.** *Authentication* → *URL Configuration*:
    - *Site URL*: `https://<tu-usuario>.github.io/macros/`
    - *Redirect URLs*: añade esa misma URL (y `http://localhost:5173/` si desarrollas en local).
+4. **Añade el código al correo de recuperación.** *Authentication* → *Emails* → *Reset Password*: añade al mensaje una línea como `<p>Tu código: {{ .Token }}</p>`. Así puedes cambiar la contraseña escribiendo el código en la app, también desde la app instalada en el iPhone. El enlace del correo solo funciona en el navegador donde la pediste.
+5. **Copia las claves.** *Project Settings* → *API Keys*: la **Project URL** y la **publishable key** (`sb_publishable_…`, o la *anon key* en proyectos antiguos). Son públicas por diseño: los datos los protege la seguridad por filas.
+6. **Pásaselas a GitHub.** En el repositorio: *Settings* → *Secrets and variables* → *Actions* → pestaña *Variables* → crea `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`.
+7. **Publica.** Lanza *Actions* → *Deploy to GitHub Pages* → *Run workflow* (o haz merge a `main`).
+8. **Crea tu cuenta y cierra el registro.** Abre la app, pulsa *Crear cuenta* y confirma el correo. Después, en Supabase: *Authentication* → *Sign In / Providers* → desactiva *Allow new users to sign up*. Así nadie más puede crear cuentas en tu proyecto. Las claves de la app son públicas y, con el registro abierto, cualquiera podría llenar tu base de datos gratuita.
 
-   El correo de confirmación de cuenta viene activado por defecto. Para uso personal puedes desactivarlo en *Authentication* → *Sign In / Providers* → *Email* → *Confirm email*.
-4. **Copia las claves.** *Project Settings* → *API Keys*: la **Project URL** y la **publishable key** (`sb_publishable_…`, o la *anon key* en proyectos antiguos). Son públicas por diseño: los datos los protege la seguridad por filas.
-5. **Pásaselas a GitHub.** En el repositorio: *Settings* → *Secrets and variables* → *Actions* → pestaña *Variables* → crea `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`.
-6. **Publica.** Lanza *Actions* → *Deploy to GitHub Pages* → *Run workflow* (o haz merge a `main`).
+La primera vez que entres en un dispositivo que ya tenía datos guardados, esos datos se suben a tu cuenta. Si dos dispositivos tenían datos de antes de las cuentas, lo que ya esté en la cuenta tiene prioridad, y las entradas repetidas (por ejemplo, de una copia de seguridad restaurada) se fusionan.
 
-Al abrir la app verás la pantalla de acceso. La primera vez que entres en un dispositivo que ya tenía datos guardados, esos datos se suben a tu cuenta.
-
-Cómo funciona: cada dispositivo guarda una copia local (IndexedDB) y sube y baja los cambios en segundo plano: al abrir la app, al volver a ella, tras cada cambio y en tiempo real cuando otro dispositivo cambia algo. Si dos dispositivos editan lo mismo sin conexión, gana el cambio más reciente. Al cerrar sesión se borra la copia local de ese dispositivo (sigue en tu cuenta).
+Cómo funciona: cada dispositivo guarda una copia local (IndexedDB) y sube y baja los cambios en segundo plano: al abrir la app, al volver a ella, tras cada cambio y en tiempo real cuando otro dispositivo cambia algo. Si dos dispositivos editan lo mismo sin conexión, gana el cambio más reciente. La app abre y funciona sin conexión aunque haya caducado la sesión; sincroniza al volver la red. Al cerrar sesión se borra la copia local de ese dispositivo (sigue en tu cuenta).
 
 Para probarlo en local, copia `.env.example` a `.env.local` y rellena las dos variables.
 

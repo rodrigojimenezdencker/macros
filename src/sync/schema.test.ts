@@ -88,6 +88,17 @@ describe('supabase/schema.sql', () => {
     await expect(as(A, () => push([{ kind: 'food', key: 'x'.repeat(101), data: {}, deleted: false, client_updated_at: 1 }]))).rejects.toThrow();
   });
 
+  it('caps how many records one account can store', async () => {
+    await db.exec("select set_config('macros.max_records', '3', false);");
+    try {
+      await expect(
+        as(A, () => push([1, 2].map((i) => ({ kind: 'weight', key: `2026-01-0${i}`, data: { kg: 80 }, deleted: false, client_updated_at: 1 })))),
+      ).rejects.toThrow(/quota/);
+    } finally {
+      await db.exec("select set_config('macros.max_records', '', false);");
+    }
+  });
+
   it('publishes changes for realtime and deletes a user’s data with the user', async () => {
     const pub = await db.query<{ tablename: string }>(`select tablename from pg_publication_tables where pubname = 'supabase_realtime'`);
     expect(pub.rows.map((r) => r.tablename)).toEqual(['records']);

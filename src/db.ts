@@ -2,7 +2,7 @@ import Dexie, { type EntityTable, type Table } from 'dexie';
 import type { DiaryEntry, Food, MealId, Settings, WeightEntry } from './types';
 import { DEFAULT_GOALS } from './lib/goals';
 import { addDays } from './lib/dates';
-import { newUid, recordsDeletes, stamp, track, type Kind, type Tombstone, type Tracked } from './sync/tracking';
+import { legacyUid, markRemote, newUid, recordsDeletes, stamp, track, type Kind, type Tombstone, type Tracked } from './sync/tracking';
 
 export interface SettingsRow extends Settings, Tracked {
   key: 'settings';
@@ -50,16 +50,24 @@ export class MacrosDB extends Dexie {
         meta: 'key',
       })
       .upgrade(async (tx) => {
-        const at = stamp();
-        const mark = (row: Tracked, withUid: boolean) => {
-          if (withUid && !row.uid) row.uid = newUid();
-          row.updatedAt ??= at;
+        // Data from before sync gets the oldest possible stamp: on sign-in it
+        // fills gaps in the account but never overwrites what the account has.
+        markRemote(tx);
+        const used = new Set<string>();
+        const mark = (row: Tracked & Record<string, unknown>, kind?: 'food' | 'entry') => {
+          if (kind && !row.uid) {
+            // Same row on two devices (e.g. restored from a backup) gets the same uid, so it merges.
+            const uid = legacyUid(kind, row);
+            row.uid = used.has(uid) ? newUid() : uid;
+            used.add(row.uid);
+          }
+          row.updatedAt = LEGACY_STAMP;
           row.dirty = 1;
         };
-        await tx.table('foods').toCollection().modify((r: Tracked) => mark(r, true));
-        await tx.table('entries').toCollection().modify((r: Tracked) => mark(r, true));
-        await tx.table('weights').toCollection().modify((r: Tracked) => mark(r, false));
-        await tx.table('settings').toCollection().modify((r: Tracked) => mark(r, false));
+        await tx.table('foods').toCollection().modify((r) => mark(r, 'food'));
+        await tx.table('entries').toCollection().modify((r) => mark(r, 'entry'));
+        await tx.table('weights').toCollection().modify((r) => mark(r));
+        await tx.table('settings').toCollection().modify((r) => mark(r));
       });
 
     const tombstones = () => this.tombstones;
@@ -69,6 +77,9 @@ export class MacrosDB extends Dexie {
     track<SettingsRow>(this.settings, { kind: 'settings', withUid: false, keyOf: () => 'settings', tombstones });
   }
 }
+
+/** Stamp for rows that existed before sync: older than any real change. */
+export const LEGACY_STAMP = 1;
 
 export const db = new MacrosDB();
 
