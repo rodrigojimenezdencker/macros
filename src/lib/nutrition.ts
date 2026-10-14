@@ -37,7 +37,7 @@ export function sum(list: Nutrients[]): Nutrients {
 }
 
 export function totals(entries: DiaryEntry[]): Nutrients {
-  return sum(entries.map((e) => e.nutrients));
+  return sum(entries.map((e) => e.nutrients ?? ZERO));
 }
 
 /** Calories implied by the macros (Atwater factors 4/4/9). */

@@ -120,13 +120,13 @@ export function isBackup(x: unknown): x is Backup {
   );
 }
 
-/** Replaces all data with the backup's contents. */
-export async function importAll(backup: Backup, database = db): Promise<void> {
+/** Replaces all data with the (already validated) backup's contents. */
+export async function importAll(backup: Pick<Backup, 'foods' | 'entries' | 'weights' | 'settings'>, database = db): Promise<void> {
   await database.transaction('rw', [database.foods, database.entries, database.weights, database.settings], async () => {
     await Promise.all([database.foods.clear(), database.entries.clear(), database.weights.clear(), database.settings.clear()]);
     await database.foods.bulkAdd(backup.foods);
     await database.entries.bulkAdd(backup.entries);
     await database.weights.bulkPut(backup.weights);
-    if (backup.settings) await database.settings.put({ ...DEFAULT_SETTINGS, ...backup.settings, key: 'settings' });
+    await database.settings.put({ ...DEFAULT_SETTINGS, ...backup.settings, key: 'settings' });
   });
 }

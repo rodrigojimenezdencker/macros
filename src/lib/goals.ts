@@ -24,7 +24,7 @@ export function bmr(p: Pick<Profile, 'sex' | 'age' | 'heightCm' | 'weightKg'>): 
 
 /** Total daily energy expenditure. */
 export function tdee(p: Profile): number {
-  return bmr(p) * ACTIVITY[p.activity].factor;
+  return bmr(p) * (ACTIVITY[p.activity]?.factor ?? ACTIVITY.sedentary.factor);
 }
 
 /** Floor below which we warn: very low intakes need medical supervision. */
@@ -38,7 +38,7 @@ export function minimumKcal(sex: Profile['sex']): number {
  * of calories, and carbohydrates filling the rest.
  */
 export function suggestGoals(p: Profile): Goals {
-  const kcal = Math.round((tdee(p) + GOAL[p.goal].delta) / 10) * 10;
+  const kcal = Math.round((tdee(p) + (GOAL[p.goal]?.delta ?? 0)) / 10) * 10;
   const proteinPerKg = p.goal.startsWith('lose') ? 2.0 : 1.8;
   const protein = Math.round(p.weightKg * proteinPerKg);
   const fat = Math.round((kcal * 0.25) / 9);
@@ -53,6 +53,17 @@ export function gramsFromPercent(kcal: number, pct: { protein: number; carbs: nu
     carbs: Math.round((kcal * pct.carbs) / 100 / 4),
     fat: Math.round((kcal * pct.fat) / 100 / 9),
   };
+}
+
+export const WEIGHT_RANGE = { min: 20, max: 500 };
+export const isPlausibleWeight = (kg: number) => Number.isFinite(kg) && kg >= WEIGHT_RANGE.min && kg <= WEIGHT_RANGE.max;
+
+/** Ranges the calculator accepts; anything outside is almost certainly a typo. */
+export function profileProblem(p: Pick<Profile, 'age' | 'heightCm' | 'weightKg'>): string | null {
+  if (p.age < 14 || p.age > 100) return 'La edad debe estar entre 14 y 100 años.';
+  if (p.heightCm < 120 || p.heightCm > 230) return 'La altura debe estar entre 120 y 230 cm.';
+  if (!isPlausibleWeight(p.weightKg)) return `El peso debe estar entre ${WEIGHT_RANGE.min} y ${WEIGHT_RANGE.max} kg.`;
+  return null;
 }
 
 export const DEFAULT_GOALS: Goals = { kcal: 2000, protein: 150, carbs: 200, fat: 67, fiber: 28 };

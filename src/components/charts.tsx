@@ -6,15 +6,17 @@ import { MACROS, Swatch } from './Macros';
 
 /** Round tick values covering [min, max]. */
 export function niceTicks(min: number, max: number, count = 4): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
   if (max <= min) max = min + 1;
   const raw = (max - min) / count;
   const mag = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? raw;
   const start = Math.floor(min / step) * step;
-  const ticks: number[] = [];
-  for (let v = start; v <= max + step * 0.001; v += step) ticks.push(Math.round(v * 1000) / 1000);
-  if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
-  return ticks;
+  // Huge magnitudes lose the precision to step at all; don't loop on them.
+  if (!(step > 0) || !Number.isFinite(start) || start + step === start) return [min, max];
+  // Build by index (never by accumulating floats), with a hard cap.
+  const n = Math.min(count * 3, Math.ceil((max - start) / step - 1e-9) + 1);
+  return Array.from({ length: n }, (_, i) => Math.round((start + i * step) * 1000) / 1000);
 }
 
 const compact = (v: number) => (v >= 1000 ? `${fmt(v / 1000)}K` : fmt(v));

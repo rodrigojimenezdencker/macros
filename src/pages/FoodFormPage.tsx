@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { catchStorage } from '../storage';
 import { db } from '../db';
 import { goBack } from '../router';
 import type { Food, Nutrients, Unit } from '../types';
@@ -45,7 +46,7 @@ export function FoodFormPage({ id, barcode, pick }: { id?: number; barcode?: str
         setValues({ ...f.per100 });
       }
       setLoaded(true);
-    });
+    }).catch(catchStorage);
   }, [id]);
 
   const set = (key: keyof Nutrients) => (v: number | undefined) => setValues((prev) => ({ ...prev, [key]: v }));

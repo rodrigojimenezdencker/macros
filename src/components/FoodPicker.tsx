@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
+import { NO_FOODS, useDbQuery } from '../hooks';
 import { navigate } from '../router';
 import type { Food } from '../types';
 import { getProduct, hasNutrition, OffError, searchProducts } from '../lib/openfoodfacts';
@@ -42,7 +42,7 @@ export function FoodRow({ food, onClick }: { food: Food; onClick: () => void }) 
   return (
     <li>
       <button className="food-row" onClick={onClick}>
-        {food.imageUrl ? <img src={food.imageUrl} alt="" loading="lazy" /> : <span className="food-row-ph" aria-hidden="true">{food.name.charAt(0).toUpperCase()}</span>}
+        {food.imageUrl ? <img src={food.imageUrl} alt="" loading="lazy" /> : <span className="food-row-ph" aria-hidden="true">{String(food.name ?? '?').charAt(0).toUpperCase()}</span>}
         <span className="food-row-main">
           <span className="food-row-name">
             {food.name}
@@ -88,10 +88,10 @@ export function FoodPicker({
   const [notFound, setNotFound] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
 
-  const all = useLiveQuery(() => db.foods.toArray(), [], []);
+  const all = useDbQuery(() => db.foods.toArray(), [], NO_FOODS);
   const lists = useMemo(() => {
     const byRecent = [...all].filter((f) => f.lastUsedAt).sort((a, b) => b.lastUsedAt! - a.lastUsedAt!);
-    const byName = (a: Food, b: Food) => a.name.localeCompare(b.name, 'es');
+    const byName = (a: Food, b: Food) => String(a.name).localeCompare(String(b.name), 'es');
     return {
       recent: byRecent.slice(0, 50),
       favorites: all.filter((f) => f.favorite).sort(byName),

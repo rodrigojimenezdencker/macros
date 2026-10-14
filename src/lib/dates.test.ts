@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, lastNDays, relativeLabel, toISODate } from './dates';
+import { addDays, isISODate, lastNDays, relativeLabel, toISODate } from './dates';
 
 describe('dates', () => {
   it('formats local calendar days', () => {
@@ -13,6 +13,15 @@ describe('dates', () => {
 
   it('lists the last N days ending on a date', () => {
     expect(lastNDays('2026-10-14', 3)).toEqual(['2026-10-12', '2026-10-13', '2026-10-14']);
+  });
+
+  it('never throws on malformed stored dates', () => {
+    expect(relativeLabel('abc', '2026-10-14')).toBe('Abc');
+    expect(isISODate('2026-10-14')).toBe(true);
+    expect(isISODate('2026-13-45x')).toBe(false);
+    expect(isISODate('2026-02-30')).toBe(false);
+    expect(isISODate('2024-02-29')).toBe(true);
+    expect(isISODate(undefined)).toBe(false);
   });
 
   it('labels nearby days in Spanish', () => {

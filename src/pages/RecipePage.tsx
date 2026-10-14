@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { catchStorage } from '../storage';
 import { db, rememberFood } from '../db';
 import { useSettings } from '../hooks';
 import { goBack } from '../router';
@@ -37,7 +38,7 @@ export function RecipePage({ id }: { id?: number }) {
         setIngredients(f.ingredients ?? []);
       }
       setLoaded(true);
-    });
+    }).catch(catchStorage);
   }, [id]);
 
   const result = useMemo(() => computeRecipe(ingredients, servings ?? 1, cookedWeight), [ingredients, servings, cookedWeight]);

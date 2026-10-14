@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { db, rememberFood } from '../db';
+import { NO_FOODS, useDbQuery } from '../hooks';
 import { navigate } from '../router';
 import type { Food, MealId } from '../types';
 import { today } from '../lib/dates';
@@ -26,11 +26,11 @@ export function FoodsPage({ initialTab }: { initialTab: string | null }) {
   const [tab, setTab] = useState<Tab>(isTab(initialTab) ? initialTab : 'favorites');
   const [filter, setFilter] = useState('');
   const [selected, setSelected] = useState<Food | null>(null);
-  const all = useLiveQuery(() => db.foods.toArray(), [], []);
+  const all = useDbQuery(() => db.foods.toArray(), [], NO_FOODS);
 
   const list = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    const byName = (a: Food, b: Food) => a.name.localeCompare(b.name, 'es');
+    const byName = (a: Food, b: Food) => String(a.name).localeCompare(String(b.name), 'es');
     let out: Food[];
     if (tab === 'favorites') out = all.filter((f) => f.favorite).sort(byName);
     else if (tab === 'mine') out = all.filter((f) => f.source === 'custom').sort(byName);

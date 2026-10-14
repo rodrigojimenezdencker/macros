@@ -48,6 +48,12 @@ describe('mapProduct', () => {
     expect(mapProduct({ product_name: 'Leche', brands: ['Hacendado'] })!.brand).toBe('Hacendado');
   });
 
+  it('ignores impossible per-100 g values from bad database entries', () => {
+    const food = mapProduct({ product_name: 'Error', nutriments: { 'energy-kcal_100g': 1e30, proteins_100g: 250, fat_100g: 12 } })!;
+    expect(food.per100.protein).toBe(0);
+    expect(food.per100.kcal).toBe(108); // recomputed from the plausible macros
+  });
+
   it('drops products without a name and flags missing nutrition', () => {
     expect(mapProduct({ code: '1', nutriments: {} })).toBeNull();
     expect(hasNutrition(mapProduct({ product_name: 'Misterio' })!)).toBe(false);

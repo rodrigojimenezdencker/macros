@@ -43,11 +43,17 @@ type Raw = Record<string, unknown>;
 
 export class OffError extends Error {}
 
-function num(v: unknown): number | undefined {
+function num(v: unknown, max = Infinity): number | undefined {
   if (v === null || v === undefined || v === '') return undefined;
   const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
+  return Number.isFinite(n) && n >= 0 && n <= max ? n : undefined;
 }
+
+// Nothing has more than 100 g of a nutrient, or ~900 kcal (pure fat), per 100 g.
+// Larger values are data-entry errors in the database (often kJ typed as kcal).
+const MAX_G = 100;
+const MAX_KCAL = 1000;
+const MAX_KJ = MAX_KCAL * 4.184;
 
 function str(v: unknown): string | undefined {
   if (typeof v === 'string') return v.trim() || undefined;
@@ -60,9 +66,9 @@ function firstBrand(v: unknown): string | undefined {
 }
 
 function kcalFrom(n: Raw): number | undefined {
-  const kcal = num(n['energy-kcal_100g']);
+  const kcal = num(n['energy-kcal_100g'], MAX_KCAL);
   if (kcal !== undefined) return kcal;
-  const kj = num(n['energy-kj_100g']) ?? num(n['energy_100g']);
+  const kj = num(n['energy-kj_100g'], MAX_KJ) ?? num(n['energy_100g'], MAX_KJ);
   return kj !== undefined ? kj / 4.184 : undefined;
 }
 
@@ -86,25 +92,25 @@ export function mapProduct(p: Raw): Food | null {
   if (!name) return null;
 
   const n = (p.nutriments && typeof p.nutriments === 'object' ? p.nutriments : {}) as Raw;
-  const protein = num(n.proteins_100g) ?? 0;
-  const carbs = num(n.carbohydrates_100g) ?? 0;
-  const fat = num(n.fat_100g) ?? 0;
+  const protein = num(n.proteins_100g, MAX_G) ?? 0;
+  const carbs = num(n.carbohydrates_100g, MAX_G) ?? 0;
+  const fat = num(n.fat_100g, MAX_G) ?? 0;
   const per100: Nutrients = {
     kcal: kcalFrom(n) ?? protein * 4 + carbs * 4 + fat * 9,
     protein,
     carbs,
     fat,
   };
-  const fiber = num(n.fiber_100g);
-  const sugar = num(n.sugars_100g);
-  const saturatedFat = num(n['saturated-fat_100g']);
-  const salt = num(n.salt_100g);
+  const fiber = num(n.fiber_100g, MAX_G);
+  const sugar = num(n.sugars_100g, MAX_G);
+  const saturatedFat = num(n['saturated-fat_100g'], MAX_G);
+  const salt = num(n.salt_100g, MAX_G);
   if (fiber !== undefined) per100.fiber = fiber;
   if (sugar !== undefined) per100.sugar = sugar;
   if (saturatedFat !== undefined) per100.saturatedFat = saturatedFat;
   if (salt !== undefined) per100.salt = salt;
 
-  const servingSize = num(p.serving_quantity);
+  const servingSize = num(p.serving_quantity, 5000);
   const servingLabel = str(p.serving_size);
 
   return {

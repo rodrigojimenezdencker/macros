@@ -1,11 +1,10 @@
 import { useRef, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
 import { copyFromYesterday, db } from '../db';
-import { useSettings } from '../hooks';
+import { NO_ENTRIES, useDbQuery, useSettings } from '../hooks';
 import { navigate } from '../router';
 import type { DiaryEntry, MealId, Nutrients } from '../types';
 import { addDays, relativeLabel, today } from '../lib/dates';
-import { fmt, fmtKcal, scale, totals } from '../lib/nutrition';
+import { fmt, fmtKcal, scale, totals, ZERO } from '../lib/nutrition';
 import { MEALS, mealLabel } from '../lib/meals';
 import { CalorieSummary, MacroLine, MacroMeters } from '../components/Macros';
 import { FoodDetailSheet } from '../components/FoodDetailSheet';
@@ -35,7 +34,7 @@ async function deleteWithUndo(entry: DiaryEntry) {
 
 export function DiaryPage({ date }: { date: string }) {
   const settings = useSettings();
-  const entries = useLiveQuery(() => db.entries.where('date').equals(date).sortBy('createdAt'), [date]);
+  const entries = useDbQuery(() => db.entries.where('date').equals(date).sortBy('createdAt'), [date], NO_ENTRIES);
   const [editing, setEditing] = useState<Editing>(null);
   const dateInput = useRef<HTMLInputElement>(null);
 
@@ -121,9 +120,9 @@ export function DiaryPage({ date }: { date: string }) {
                           {e.food?.brand && <>{e.food.brand} · </>}
                           {e.food ? amountLabel(e) : 'Añadido rápido'}
                         </span>
-                        <MacroLine n={e.nutrients} />
+                        <MacroLine n={e.nutrients ?? ZERO} />
                       </span>
-                      <span className="entry-kcal">{fmtKcal(e.nutrients.kcal)}</span>
+                      <span className="entry-kcal">{fmtKcal(e.nutrients?.kcal ?? 0)}</span>
                     </button>
                   </li>
                 ))}
