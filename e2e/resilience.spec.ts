@@ -50,8 +50,14 @@ test('a screen that fails to render shows the error and keeps the app usable', a
   });
   await tabbar(page).getByRole('button', { name: 'Progreso' }).click();
   await expect(page.getByRole('heading', { name: 'Algo ha fallado' })).toBeVisible();
-  await expect(page.getByText('RangeError: fallo simulado')).toBeVisible();
+  await expect(page.getByText('RangeError: fallo simulado', { exact: true })).toBeVisible();
   await expect(tabbar(page)).toBeVisible();
+  // The technical details carry the screen, build and stack, to locate the bug.
+  await page.getByText('Detalles técnicos').click();
+  const details = page.locator('.crash-more .crash-detail');
+  await expect(details).toContainText('Pantalla: #/progress');
+  await expect(details).toContainText('Versión: local');
+  await expect(details).toContainText(/index-[\w-]+\.js:\d+:\d+/);
 
   await page.evaluate(() => {
     const w = window as unknown as { __format: PropertyDescriptor };
