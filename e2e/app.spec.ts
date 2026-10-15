@@ -34,26 +34,39 @@ test('search rides out Open Food Facts failing for a moment', async ({ page }) =
   await page.getByRole('region', { name: 'Desayuno' }).getByRole('button', { name: 'Añadir alimento' }).click();
   await page.getByLabel('Buscar alimento').fill('leche');
   await page.getByLabel('Buscar alimento').press('Enter');
-  await expect(page.getByText('Buscando…')).toBeVisible();
+  await expect(page.getByText(/^Open Food Facts está saturado\. Reintentando \([23] de 6\)…$/)).toBeVisible();
   await expect(page.getByRole('button', { name: /Leche semidesnatada/ })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/Reintentando/)).toHaveCount(0);
   expect(calls).toBe(3);
 });
 
+test('typing something else drops a search that is still retrying', async ({ page }) => {
+  await page.route(/openfoodfacts\.org\/cgi\/search\.pl/, (route) => route.abort('failed'));
+  await page.getByRole('region', { name: 'Desayuno' }).getByRole('button', { name: 'Añadir alimento' }).click();
+  await page.getByLabel('Buscar alimento').fill('leche');
+  await page.getByLabel('Buscar alimento').press('Enter');
+  await expect(page.getByText(/Reintentando \(\d de 6\)/)).toBeVisible();
+  await page.getByLabel('Buscar alimento').fill('avena');
+  await expect(page.getByRole('button', { name: 'Buscar «avena»' })).toBeVisible();
+  await expect(page.getByText(/Reintentando|Buscando/)).toHaveCount(0);
+});
+
 test('when Open Food Facts is down the search says so and can be tried again', async ({ page }) => {
+  test.setTimeout(60_000); // six tries over about 12 s
   let down = true;
   await page.route(/openfoodfacts\.org\/cgi\/search\.pl/, (route) => (down ? route.abort('failed') : route.fallback()));
   await page.getByRole('region', { name: 'Desayuno' }).getByRole('button', { name: 'Añadir alimento' }).click();
   await page.getByLabel('Buscar alimento').fill('leche');
   await page.getByLabel('Buscar alimento').press('Enter');
-  await expect(page.getByText('Open Food Facts no responde ahora mismo. Vuelve a intentarlo en unos segundos.')).toBeVisible({
-    timeout: 10_000,
+  await expect(page.getByText('Open Food Facts está saturado ahora mismo. Vuelve a intentarlo en un momento.')).toBeVisible({
+    timeout: 30_000,
   });
   await expect(page.getByText(/conexión/)).toHaveCount(0);
 
   down = false;
   await page.getByRole('button', { name: 'Buscar «leche»' }).click();
   await expect(page.getByRole('button', { name: /Leche semidesnatada/ })).toBeVisible();
-  await expect(page.getByText(/no responde/)).toHaveCount(0);
+  await expect(page.getByText(/saturado/)).toHaveCount(0);
 });
 
 test('edits an entry and undoes a delete', async ({ page }) => {

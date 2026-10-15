@@ -95,6 +95,7 @@ export function FoodPicker({
   const [results, setResults] = useState<{ query: string; foods: Food[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState<{ attempt: number; of: number } | null>(null);
   const [scanning, setScanning] = useState(false);
   const [notFound, setNotFound] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -119,20 +120,34 @@ export function FoodPicker({
     [all, q, hideRecipes],
   );
 
+  // Typing something else drops a search still retrying for the old text.
+  useEffect(() => {
+    if (!abort.current || abort.current.signal.aborted) return;
+    abort.current.abort();
+    setLoading(false);
+    setRetry(null);
+  }, [q]);
+
   const runSearch = async () => {
     if (!q) return;
     abort.current?.abort();
     const ctrl = new AbortController();
     abort.current = ctrl;
     setLoading(true);
+    setRetry(null);
     setError(null);
     try {
-      const foods = await searchProducts(q, country, ctrl.signal);
+      const foods = await searchProducts(q, country, ctrl.signal, (attempt, of) => {
+        if (!ctrl.signal.aborted) setRetry({ attempt, of });
+      });
       if (!ctrl.signal.aborted) setResults({ query: q, foods });
     } catch (err) {
       if (!ctrl.signal.aborted) setError(err instanceof OffError ? err.message : 'Error al buscar. Inténtalo de nuevo.');
     } finally {
-      if (!ctrl.signal.aborted) setLoading(false);
+      if (!ctrl.signal.aborted) {
+        setLoading(false);
+        setRetry(null);
+      }
     }
   };
 
@@ -244,7 +259,11 @@ export function FoodPicker({
                 <Icon name="search" size={18} /> Buscar «{q}»
               </button>
             )}
-            {loading && <p className="muted center pad">Buscando…</p>}
+            {loading && (
+              <p className="muted center pad" role="status">
+                {retry ? `Open Food Facts está saturado. Reintentando (${retry.attempt} de ${retry.of})…` : 'Buscando…'}
+              </p>
+            )}
             {error && <p className="error center pad">{error}</p>}
             {showResults && !loading && results.foods.length === 0 && (
               <p className="muted center pad">Sin resultados. Prueba con otras palabras o crea el alimento.</p>

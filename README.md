@@ -24,6 +24,8 @@ Cuando esté publicada en GitHub Pages (ver abajo), abre la URL en el móvil y:
 - **iPhone (Safari):** botón Compartir → *Añadir a pantalla de inicio*.
 - **Android (Chrome):** menú ⋮ → *Instalar aplicación*.
 
+La app se actualiza sola: cada vez que vuelves a ella busca si hay una versión nueva y se recarga con ella (si la estabas usando, espera a que salgas para no interrumpirte).
+
 Con la cuenta configurada (ver abajo), entra con tu correo en cada dispositivo y verás los mismos datos. Sin cuenta, los datos viven solo en el navegador de ese dispositivo: exporta una copia de seguridad de vez en cuando (Ajustes → Copia de seguridad).
 
 ## Publicarla gratis con GitHub Pages
@@ -77,7 +79,7 @@ Si `npm install` falla con `Cannot read properties of null (reading 'edgesOut')`
 - **React + TypeScript + Vite**, con `vite-plugin-pwa` para que se pueda instalar y funcione sin conexión.
 - **IndexedDB** (vía Dexie) como base de datos local: `src/db.ts`.
 - **Sincronización** en `src/sync/` (seguimiento de cambios y motor de sincronización, con tests de dos dispositivos) y **cuenta** en `src/cloud/` (cliente de Supabase, sesión y pantallas de acceso). El esquema de la base de datos está en `supabase/schema.sql`.
-- **Open Food Facts** se consulta directamente desde el navegador (`src/lib/openfoodfacts.ts`). Se busca al pulsar *Buscar*, no a cada tecla, para respetar sus límites de uso. Su buscador falla a menudo durante un momento (responde 503 sin cabeceras CORS, y el navegador lo ve como un fallo de red), así que la app lo reintenta sola dos veces antes de avisar. Su buscador nuevo (`search.openfoodfacts.org`) no se puede usar desde el navegador porque no envía cabeceras CORS.
+- **Open Food Facts** se consulta directamente desde el navegador (`src/lib/openfoodfacts.ts`). Se busca al pulsar *Buscar*, no a cada tecla, para respetar sus límites de uso. Su buscador falla a menudo: deja pasar como mucho 600 búsquedas por minuto sumando a todos los usuarios anónimos del mundo, y al resto les responde 503 sin cabeceras CORS (el navegador lo ve como un fallo de red). Por eso la app reintenta hasta seis veces en unos 12 segundos, con esperas crecientes y aleatorias, y recuerda durante media hora los resultados de cada búsqueda. Su buscador nuevo (`search.openfoodfacts.org`) no tiene ese límite, pero no se puede usar desde el navegador porque no envía cabeceras CORS.
 - Cálculos de nutrición y objetivos en `src/lib/` (con tests al lado).
 - Las entradas del diario guardan una copia del alimento: si después editas o borras el alimento, tu historial no cambia.
 - Las cantidades se guardan siempre en gramos o ml (la unidad de los valores por 100 del alimento); vasos, tazas, litros o cucharadas solo cambian cómo se escriben y se muestran (`src/lib/units.ts`). Entre peso y volumen se cuenta 1 ml ≈ 1 g, y la app lo indica como aproximado.

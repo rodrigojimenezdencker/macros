@@ -2,9 +2,12 @@ import type { Food, Nutrients, Unit } from '../types';
 
 /**
  * Open Food Facts client. OFF is a free, open database with CORS enabled, so
- * the browser talks to it directly. Their limits are generous for one person
- * (100 product reads/min, 10 searches/min), so we search on submit, never on
- * every keystroke.
+ * the browser talks to it directly. Its limits per IP address are 15 product
+ * reads and 10 searches a minute, so we search on submit, never on every
+ * keystroke. On top of that, OFF's proxy lets through at most 600 anonymous
+ * searches a minute from everyone in the world together, and answers the rest
+ * with an instant 503: that, not the user's connection, is why search often
+ * fails (see openfoodfacts-infrastructure, confs/scaleway-proxy/nginx).
  */
 
 export const OFF_COUNTRIES: { id: string; label: string }[] = [
@@ -183,10 +186,11 @@ async function getJSON(url: string, signal?: AbortSignal, timeoutMs = 12000): Pr
 const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
 /**
- * Open Food Facts often answers 503 for a moment, and those answers carry no
- * CORS headers, so the browser only reports a failed fetch ("Failed to fetch",
- * "Load failed"). Such quick failures are worth another try. A timeout is not:
- * the user has already waited, and the search button is right there.
+ * OFF's 503s carry no CORS headers, so the browser only reports a failed fetch
+ * ("Failed to fetch", "Load failed"). Such quick failures are worth another
+ * try. A timeout is not: the user has already waited, and the search button is
+ * right there. Nor is a 429: OFF bans an IP for a day after 12 of those in an
+ * hour (fail2ban counts 401/403/429, not 503).
  */
 function retryable(err: unknown): boolean {
   if (offline()) return false;
@@ -210,25 +214,48 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Waits before the 2nd and 3rd tries. Three tries keep well inside OFF's limit of 10 searches a minute. */
-const RETRY_DELAYS = [1000, 2500];
+/**
+ * Waits before each new try, growing and with random jitter as OFF asks. The
+ * global search limit turns away whichever searches arrive too close to
+ * someone else's, so a few tries spread over seconds almost always get one
+ * through. Turned-away tries cost OFF nothing (its proxy refuses them before
+ * any search work) and don't count towards the per-IP limits.
+ */
+const RETRY_DELAYS = [500, 1000, 2000, 4000, 4000];
+const SEARCH_ATTEMPTS = RETRY_DELAYS.length + 1;
+const PRODUCT_ATTEMPTS = 3;
 
-async function withRetries<T>(request: () => Promise<T>, signal?: AbortSignal, attempts = RETRY_DELAYS.length + 1): Promise<T> {
+/** ±30 %, so many users' retries don't land at the same moment. */
+const jitter = (ms: number) => Math.round(ms * (0.7 + Math.random() * 0.6));
+
+/** Told before each new try: "Reintentando (2 de 6)…". */
+export type OnRetry = (attempt: number, of: number) => void;
+
+async function withRetries<T>(
+  request: () => Promise<T>,
+  signal: AbortSignal | undefined,
+  attempts: number,
+  onRetry?: OnRetry,
+): Promise<T> {
   for (let i = 0; ; i++) {
     try {
       return await request();
     } catch (err) {
       if (signal?.aborted || i + 1 >= attempts || !retryable(err)) throw err;
-      await pause(RETRY_DELAYS[Math.min(i, RETRY_DELAYS.length - 1)], signal);
+      onRetry?.(i + 2, attempts);
+      await pause(jitter(RETRY_DELAYS[Math.min(i, RETRY_DELAYS.length - 1)]), signal);
     }
   }
 }
 
+export const SEARCH_BUSY = 'Open Food Facts está saturado ahora mismo. Vuelve a intentarlo en un momento.';
+const PRODUCT_BUSY = 'Open Food Facts no responde ahora mismo. Vuelve a intentarlo en unos segundos.';
+
 /** What to tell the user once the tries are spent. */
-function toOffError(err: unknown): OffError {
+function toOffError(err: unknown, busy: string): OffError {
   if (err instanceof OffError && !(err instanceof OffHttpError)) return err;
   if (offline()) return new OffError('No hay conexión. Comprueba tu red y vuelve a intentarlo.');
-  return new OffError('Open Food Facts no responde ahora mismo. Vuelve a intentarlo en unos segundos.');
+  return new OffError(busy);
 }
 
 function host(country: string) {
@@ -255,9 +282,12 @@ function mapList(list: unknown): Food[] {
  * a browser can call: the newer search service (search.openfoodfacts.org)
  * sends no CORS headers.
  */
-export async function searchProducts(query: string, country: string, signal?: AbortSignal): Promise<Food[]> {
+export async function searchProducts(query: string, country: string, signal?: AbortSignal, onRetry?: OnRetry): Promise<Food[]> {
   const q = query.trim();
   if (!q) return [];
+  const key = `${country}|${q.toLowerCase().replace(/\s+/g, ' ')}`;
+  const hit = recent.get(key);
+  if (hit && Date.now() - hit.at < RECENT_MS) return hit.foods.slice();
 
   const url = new URL(`${host(country)}/cgi/search.pl`);
   url.search = new URLSearchParams({
@@ -271,19 +301,37 @@ export async function searchProducts(query: string, country: string, signal?: Ab
   }).toString();
 
   try {
-    const data = await withRetries(() => getJSON(url.toString(), signal), signal);
-    return mapList(data.products);
+    const data = await withRetries(() => getJSON(url.toString(), signal), signal, SEARCH_ATTEMPTS, onRetry);
+    const foods = mapList(data.products);
+    remember(key, foods);
+    return foods.slice();
   } catch (err) {
     if (signal?.aborted) throw err;
-    throw toOffError(err);
+    throw toOffError(err, SEARCH_BUSY);
   }
+}
+
+/** Recent results: searching the same thing again is instant and needs no luck with OFF's limit. */
+const recent = new Map<string, { at: number; foods: Food[] }>();
+const RECENT_MS = 30 * 60_000;
+const RECENT_MAX = 30;
+
+function remember(key: string, foods: Food[]) {
+  recent.delete(key);
+  recent.set(key, { at: Date.now(), foods });
+  if (recent.size > RECENT_MAX) recent.delete(recent.keys().next().value!);
+}
+
+/** For tests. */
+export function forgetRecentSearches() {
+  recent.clear();
 }
 
 /**
  * Looks a product up by barcode. Returns null when OFF does not know it.
  * `attempts` is 1 for a lookup the user isn't waiting on.
  */
-export async function getProduct(barcode: string, signal?: AbortSignal, attempts?: number): Promise<Food | null> {
+export async function getProduct(barcode: string, signal?: AbortSignal, attempts = PRODUCT_ATTEMPTS): Promise<Food | null> {
   const code = barcode.replace(/\D/g, '');
   if (!code) return null;
   let data: Raw;
@@ -294,7 +342,7 @@ export async function getProduct(barcode: string, signal?: AbortSignal, attempts
     if (signal?.aborted) throw err;
     // A 404 is the API's way of saying "unknown product".
     if (err instanceof OffHttpError && err.status === 404) return null;
-    throw toOffError(err);
+    throw toOffError(err, PRODUCT_BUSY);
   }
   if (data.status !== 1 && data.status !== 'success') return null;
   const food = mapProduct({ ...(data.product as Raw), code });

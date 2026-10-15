@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getProduct, hasNutrition, mapProduct, OffError, searchProducts } from './openfoodfacts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { forgetRecentSearches, getProduct, hasNutrition, mapProduct, OffError, SEARCH_BUSY, searchProducts } from './openfoodfacts';
 
 const nutella = {
   code: '3017624010701',
@@ -85,9 +85,15 @@ describe('mapProduct', () => {
 });
 
 describe('network', () => {
+  beforeEach(() => {
+    forgetRecentSearches();
+    // No jitter, so the waits are exact: 0.5 s, 1 s, 2 s, 4 s, 4 s.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('searches and de-duplicates by barcode', async () => {
@@ -118,24 +124,80 @@ describe('network', () => {
       .mockResolvedValueOnce(new Response('busy', { status: 503 }))
       .mockResolvedValueOnce(ok());
     vi.stubGlobal('fetch', fetchMock);
-    const search = searchProducts('nutella', 'es');
-    await vi.advanceTimersByTimeAsync(999);
+    const onRetry = vi.fn();
+    const search = searchProducts('nutella', 'es', undefined, onRetry);
+    await vi.advanceTimersByTimeAsync(499);
     expect(fetchMock).toHaveBeenCalledTimes(1); // waits a moment before trying again
-    await vi.advanceTimersByTimeAsync(5000);
+    expect(onRetry).toHaveBeenLastCalledWith(2, 6);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // and a little longer each time
+    await vi.advanceTimersByTimeAsync(1);
     expect((await search)[0].name).toBe('Nutella crema de cacao');
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(onRetry.mock.calls).toEqual([
+      [2, 6],
+      [3, 6],
+    ]);
   });
 
-  it('gives up after three tries and says it is Open Food Facts, not your connection', async () => {
+  it('spreads the waits randomly, so many users do not retry in step', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue(new Response(JSON.stringify({ products: [] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(Math, 'random').mockReturnValue(0); // the shortest wait: 70 % of 0,5 s
+    const search = searchProducts('leche', 'es');
+    await vi.advanceTimersByTimeAsync(349);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await search;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up after six tries and says Open Food Facts is busy, not your connection', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
     vi.stubGlobal('fetch', fetchMock);
     const search = searchProducts('nutella', 'es');
-    const failed = expect(search).rejects.toThrow('Open Food Facts no responde ahora mismo. Vuelve a intentarlo en unos segundos.');
-    await vi.advanceTimersByTimeAsync(10_000);
+    const failed = expect(search).rejects.toThrow(SEARCH_BUSY);
+    await vi.advanceTimersByTimeAsync(11_499);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    await vi.advanceTimersByTimeAsync(1);
     await failed;
     await expect(search).rejects.toBeInstanceOf(OffError);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(SEARCH_BUSY).not.toMatch(/conexión/);
+  });
+
+  it('remembers recent results, so the same search again needs no luck with OFF', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ products: [nutella] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const first = await searchProducts('Nutella', 'es');
+    expect(await searchProducts('  nutella ', 'es')).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // A copy each time: a caller changing its list can't change what is remembered.
+    (await searchProducts('nutella', 'es')).length = 0;
+    expect(await searchProducts('nutella', 'es')).toHaveLength(1);
+    await searchProducts('nutella', 'world'); // other country, other results
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(30 * 60_000); // half an hour later, ask again
+    await searchProducts('nutella', 'es');
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not remember failures', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('slow down', { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ products: [nutella] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(searchProducts('nutella', 'es')).rejects.toThrow('Demasiadas búsquedas seguidas');
+    expect(await searchProducts('nutella', 'es')).toHaveLength(1);
   });
 
   it('does not retry what another try cannot fix', async () => {
@@ -146,7 +208,7 @@ describe('network', () => {
 
     const timedOut = vi.fn().mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'));
     vi.stubGlobal('fetch', timedOut);
-    await expect(searchProducts('nutella', 'es')).rejects.toThrow('Open Food Facts no responde');
+    await expect(searchProducts('nutella', 'es')).rejects.toThrow(SEARCH_BUSY);
     expect(timedOut).toHaveBeenCalledTimes(1);
 
     vi.stubGlobal('navigator', { onLine: false });
@@ -163,7 +225,7 @@ describe('network', () => {
     const ctrl = new AbortController();
     const search = searchProducts('nutella', 'es', ctrl.signal);
     const aborted = expect(search).rejects.toThrow();
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(300);
     ctrl.abort();
     await aborted;
     await vi.advanceTimersByTimeAsync(10_000);
@@ -180,7 +242,7 @@ describe('network', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     const search = searchProducts('nutella', 'es', new AbortController().signal);
-    const failed = expect(search).rejects.toThrow('Open Food Facts no responde');
+    const failed = expect(search).rejects.toThrow(SEARCH_BUSY);
     await vi.advanceTimersByTimeAsync(12_000);
     await failed;
     expect(fetchMock).toHaveBeenCalledTimes(1);
