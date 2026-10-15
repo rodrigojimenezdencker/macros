@@ -1,13 +1,12 @@
-import { useMemo, useState } from 'react';
-import type { FoodSnapshot, MealId, Nutrients } from '../types';
+import { useId, useMemo, useState } from 'react';
+import type { FoodSnapshot, MealId, MeasureId, Nutrients, Portion } from '../types';
 import { fmt, fmtKcal, scale } from '../lib/nutrition';
 import { MEALS } from '../lib/meals';
+import { amountOf, defaultPortion, isApprox, measureGroups, measureOf, portionFor, qtyIn } from '../lib/units';
 import { MacroSplitBar } from './Macros';
 import { NumberField, Segmented } from './Field';
 import { Sheet } from './Sheet';
 import { Icon } from './Icon';
-
-type Mode = 'serving' | 'unit';
 
 const EXTRA: { key: keyof Nutrients; label: string }[] = [
   { key: 'fiber', label: 'Fibra' },
@@ -16,17 +15,10 @@ const EXTRA: { key: keyof Nutrients; label: string }[] = [
   { key: 'salt', label: 'Sal' },
 ];
 
-function initialMode(food: FoodSnapshot, amount?: number): Mode {
-  if (!food.servingSize) return 'unit';
-  if (amount === undefined) return 'serving';
-  const servings = amount / food.servingSize;
-  // Show servings only when the amount is a tidy multiple (¼ steps).
-  return Math.abs(servings * 4 - Math.round(servings * 4)) < 0.01 ? 'serving' : 'unit';
-}
-
 export function FoodDetailSheet({
   food,
   initialAmount,
+  initialPortion,
   initialMeal,
   showMeal,
   confirmLabel,
@@ -37,36 +29,45 @@ export function FoodDetailSheet({
   onToggleFavorite,
   onEdit,
 }: {
-  food: FoodSnapshot;
+  food: FoodSnapshot & { lastPortion?: Portion };
+  /** Editing: the amount already logged, and how it was entered. */
   initialAmount?: number;
+  initialPortion?: Portion;
   initialMeal?: MealId;
   showMeal: boolean;
   confirmLabel: string;
-  onConfirm: (amount: number, meal: MealId) => void;
+  onConfirm: (amount: number, meal: MealId, portion: Portion) => void;
   onClose: () => void;
   onDelete?: () => void;
   favorite?: boolean;
   onToggleFavorite?: () => void;
   onEdit?: () => void;
 }) {
-  const [mode, setMode] = useState<Mode>(() => initialMode(food, initialAmount));
-  const [qty, setQty] = useState<number | undefined>(() => {
-    const m = initialMode(food, initialAmount);
-    if (m === 'serving') return initialAmount !== undefined ? initialAmount / food.servingSize! : 1;
-    return initialAmount ?? 100;
-  });
+  const [start] = useState(() =>
+    initialAmount !== undefined ? portionFor(food, initialAmount, initialPortion) : defaultPortion(food),
+  );
+  const [measure, setMeasure] = useState<MeasureId>(start.measure);
+  const [qty, setQty] = useState<number | undefined>(start.qty);
   const [meal, setMeal] = useState<MealId>(initialMeal ?? 'breakfast');
+  const unitId = useId();
 
-  const amount = qty === undefined ? 0 : mode === 'serving' ? qty * (food.servingSize ?? 0) : qty;
+  const m = measureOf(food, measure)!;
+  const amount = amountOf(food, { measure, qty });
   const n = useMemo(() => scale(food.per100, amount), [food.per100, amount]);
   const u = food.unit;
+  const approx = isApprox(food, measure);
 
-  const switchMode = (m: Mode) => {
-    if (m === mode || !food.servingSize) return;
-    // Keep the same amount when switching between grams and servings.
-    if (qty !== undefined) setQty(m === 'serving' ? Math.round((amount / food.servingSize) * 100) / 100 : Math.round(amount));
-    setMode(m);
+  const switchMeasure = (next: MeasureId) => {
+    if (next === measure || !measureOf(food, next)) return;
+    // Keep the same amount when it reads well in the new unit.
+    if (qty !== undefined) setQty(qtyIn(food, next, amount));
+    setMeasure(next);
   };
+  const step = (dir: 1 | -1) =>
+    setQty((q) => {
+      const f = 10 ** m.decimals;
+      return Math.max(0, Math.round(((q ?? 0) + dir * m.step) * f) / f);
+    });
 
   return (
     <Sheet
@@ -79,7 +80,7 @@ export function FoodDetailSheet({
               <Icon name="trash" size={18} /> Eliminar
             </button>
           )}
-          <button className="btn btn-primary btn-grow" disabled={!(amount > 0)} onClick={() => onConfirm(amount, meal)}>
+          <button className="btn btn-primary btn-grow" disabled={!(amount > 0)} onClick={() => onConfirm(amount, meal, { measure, qty: qty! })}>
             {confirmLabel}
           </button>
         </>
@@ -110,48 +111,47 @@ export function FoodDetailSheet({
         )}
       </div>
 
-      {food.servingSize ? (
-        <Segmented
-          label="Unidad"
-          value={mode}
-          onChange={switchMode}
-          options={[
-            { value: 'serving', label: `Porciones (${fmt(food.servingSize)} ${u})` },
-            { value: 'unit', label: u === 'ml' ? 'Mililitros' : 'Gramos' },
-          ]}
-        />
-      ) : null}
+      <label className="field">
+        <span className="field-label" id={unitId}>
+          Unidad
+        </span>
+        <span className="field-input">
+          <select aria-labelledby={unitId} value={measure} onChange={(e) => switchMeasure(e.target.value as MeasureId)}>
+            {measureGroups(food).map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.measures.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.option}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </span>
+      </label>
 
       <div className="qty-row">
-        <button
-          className="icon-btn round"
-          aria-label="Menos"
-          onClick={() => setQty((q) => Math.max(0, (q ?? 0) - (mode === 'serving' ? 0.5 : 10)))}
-        >
+        <button className="icon-btn round" aria-label="Menos" onClick={() => step(-1)}>
           <Icon name="minus" />
         </button>
-        <NumberField
-          label={mode === 'serving' ? 'Número de porciones' : `Cantidad (${u})`}
-          value={qty}
-          onChange={setQty}
-          suffix={mode === 'serving' ? undefined : u}
-          decimals={2}
-        />
-        <button
-          className="icon-btn round"
-          aria-label="Más"
-          onClick={() => setQty((q) => (q ?? 0) + (mode === 'serving' ? 0.5 : 10))}
-        >
+        <NumberField label="Cantidad" value={qty} onChange={setQty} decimals={Math.max(2, m.decimals)} />
+        <button className="icon-btn round" aria-label="Más" onClick={() => step(1)}>
           <Icon name="plus" />
         </button>
       </div>
-      {mode === 'serving' && food.servingLabel && (
-        <p className="muted small center">1 porción = {food.servingLabel}</p>
+      {measure === 'serving' && food.servingLabel && <p className="muted small center">1 porción = {food.servingLabel}</p>}
+      {approx && (
+        <p className="muted small center">
+          Aproximado: se cuenta 1 ml como 1 g.
+        </p>
       )}
 
       <div className="detail-kcal">
         <span className="hero-figure">{fmtKcal(n.kcal)}</span>
-        <span className="muted">kcal en {fmt(amount)} {u}</span>
+        <span className="muted">
+          kcal en {approx && '≈'}
+          {fmt(amount)} {u}
+        </span>
       </div>
       <MacroSplitBar n={n} />
 

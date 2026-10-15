@@ -1,8 +1,9 @@
-import type { DiaryEntry, Food, FoodSnapshot, Nutrients, Profile, RecipeIngredient, Settings, Unit, WeightEntry } from '../types';
+import type { DiaryEntry, Food, FoodSnapshot, Nutrients, Portion, Profile, RecipeIngredient, Settings, Unit, WeightEntry } from '../types';
 import { ACTIVITY, DEFAULT_GOALS, GOAL, isPlausibleWeight } from './goals';
 import { isISODate } from './dates';
 import { isMealId } from './meals';
 import { OFF_COUNTRIES } from './openfoodfacts';
+import { isMeasureId } from './units';
 
 /**
  * Backups are plain JSON files people can edit or that other versions may
@@ -37,6 +38,12 @@ function nutrients(x: unknown): Nutrients | null {
   return out;
 }
 
+function portion(x: unknown): Portion | undefined {
+  if (!isObj(x) || !isMeasureId(x.measure)) return undefined;
+  const qty = positive(x.qty);
+  return qty ? { measure: x.measure, qty } : undefined;
+}
+
 function ingredient(x: unknown): RecipeIngredient | null {
   if (!isObj(x)) return null;
   const name = text(x.name);
@@ -51,6 +58,7 @@ function ingredient(x: unknown): RecipeIngredient | null {
     per100,
     servingSize: positive(x.servingSize),
     servingLabel: text(x.servingLabel),
+    portion: portion(x.portion),
   };
 }
 
@@ -75,6 +83,7 @@ function food(x: unknown): Food | null {
     favorite: x.favorite === true || undefined,
     lastUsedAt: positive(x.lastUsedAt),
     useCount: nonNeg(x.useCount),
+    lastPortion: portion(x.lastPortion),
     createdAt: positive(x.createdAt) ?? Date.now(),
   };
   if (source === 'recipe') {
@@ -114,6 +123,7 @@ function entry(x: unknown): DiaryEntry | null {
     meal: x.meal as DiaryEntry['meal'],
     food: snap,
     amount: nonNeg(x.amount) ?? 0,
+    portion: snap ? portion(x.portion) : undefined,
     nutrients: n,
     name: text(x.name) ?? snap?.name ?? 'Sin nombre',
     createdAt: positive(x.createdAt) ?? Date.now(),

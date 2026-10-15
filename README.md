@@ -7,7 +7,7 @@ App web para registrar lo que comes y seguir tus calorías y macronutrientes, al
 - **Diario por comidas** (desayuno, comida, cena, snacks) con la cuenta de MyFitnessPal: *objetivo − comida = restantes*, y barras de proteína, carbohidratos y grasas frente a tus objetivos.
 - **Buscador de alimentos** sobre [Open Food Facts](https://world.openfoodfacts.org), una base de datos abierta con millones de productos. Puedes priorizar los de tu país.
 - **Escáner de código de barras** con la cámara (en Android usa el detector nativo; en iPhone, una alternativa en JavaScript). También se puede escribir el número a mano.
-- **Cantidades en gramos/ml o en porciones**, con vista previa de calorías y macros antes de añadir.
+- **Cantidades en la unidad que prefieras**: gramos, kilos, mililitros, litros, vasos, tazas, cucharadas, cucharaditas o porciones, con vista previa de calorías y macros antes de añadir. La app recuerda la última cantidad que usaste con cada alimento.
 - **Alimentos propios**, a partir de los valores de la etiqueta, por 100 g o por porción.
 - **Recetas**: añade los ingredientes en crudo y la app calcula los macros por porción (y por 100 g si pesas la olla ya cocinada).
 - **Añadido rápido** de calorías y macros cuando no tienes el alimento a mano.
@@ -80,5 +80,6 @@ Si `npm install` falla con `Cannot read properties of null (reading 'edgesOut')`
 - **Open Food Facts** se consulta directamente desde el navegador (`src/lib/openfoodfacts.ts`). Se busca al pulsar *Buscar*, no a cada tecla, para respetar sus límites de uso.
 - Cálculos de nutrición y objetivos en `src/lib/` (con tests al lado).
 - Las entradas del diario guardan una copia del alimento: si después editas o borras el alimento, tu historial no cambia.
+- Las cantidades se guardan siempre en gramos o ml (la unidad de los valores por 100 del alimento); vasos, tazas, litros o cucharadas solo cambian cómo se escriben y se muestran (`src/lib/units.ts`). Entre peso y volumen se cuenta 1 ml ≈ 1 g, y la app lo indica como aproximado.
 
 Los datos de productos son © colaboradores de Open Food Facts, bajo licencia [ODbL](https://opendatacommons.org/licenses/odbl/1-0/).

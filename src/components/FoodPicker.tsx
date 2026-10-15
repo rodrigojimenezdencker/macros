@@ -68,6 +68,17 @@ export function FoodRow({ food, onClick }: { food: Food; onClick: () => void }) 
   );
 }
 
+/** A product logged before offers the same portion again ("1 vaso"), even when picked from a search. */
+async function withLastPortion(food: Food): Promise<Food> {
+  if (!food.barcode) return food;
+  try {
+    const local = await db.foods.where('barcode').equals(food.barcode).first();
+    return local?.lastPortion ? { ...food, lastPortion: local.lastPortion } : food;
+  } catch {
+    return food;
+  }
+}
+
 export function FoodPicker({
   country,
   onPick,
@@ -128,12 +139,12 @@ export function FoodPicker({
     if (!hasNutrition(food) && food.barcode) {
       try {
         const full = await getProduct(food.barcode);
-        if (full) return onPick(full);
+        if (full) return onPick(await withLastPortion(full));
       } catch {
         // Fall through with what we have.
       }
     }
-    onPick(food);
+    onPick(await withLastPortion(food));
   };
 
   const onScan = useCallback(

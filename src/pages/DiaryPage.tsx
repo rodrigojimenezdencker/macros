@@ -6,6 +6,7 @@ import type { DiaryEntry, MealId, Nutrients } from '../types';
 import { addDays, relativeLabel, today } from '../lib/dates';
 import { fmt, fmtKcal, scale, totals, ZERO } from '../lib/nutrition';
 import { MEALS, mealLabel } from '../lib/meals';
+import { portionLabel } from '../lib/units';
 import { CalorieSummary, MacroLine, MacroMeters } from '../components/Macros';
 import { FoodDetailSheet } from '../components/FoodDetailSheet';
 import { QuickAddSheet } from '../components/QuickAddSheet';
@@ -14,18 +15,6 @@ import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
 
 type Editing = { kind: 'entry'; entry: DiaryEntry } | { kind: 'quick'; meal: MealId } | null;
-
-function amountLabel(e: DiaryEntry): string {
-  if (!e.food) return '';
-  const { servingSize, unit } = e.food;
-  if (servingSize) {
-    const servings = e.amount / servingSize;
-    if (Math.abs(servings * 4 - Math.round(servings * 4)) < 0.01) {
-      return `${fmt(servings)} ${servings === 1 ? 'porción' : 'porciones'} · ${fmt(e.amount)} ${unit}`;
-    }
-  }
-  return `${fmt(e.amount)} ${unit}`;
-}
 
 async function deleteWithUndo(entry: DiaryEntry) {
   await db.entries.delete(entry.id!);
@@ -118,7 +107,7 @@ export function DiaryPage({ date }: { date: string }) {
                         <span className="entry-name">{e.name}</span>
                         <span className="entry-sub">
                           {e.food?.brand && <>{e.food.brand} · </>}
-                          {e.food ? amountLabel(e) : 'Añadido rápido'}
+                          {e.food ? portionLabel(e.food, e.amount, e.portion) : 'Añadido rápido'}
                         </span>
                         <MacroLine n={e.nutrients ?? ZERO} />
                       </span>
@@ -146,13 +135,14 @@ export function DiaryPage({ date }: { date: string }) {
         <FoodDetailSheet
           food={editing.entry.food}
           initialAmount={editing.entry.amount}
+          initialPortion={editing.entry.portion}
           initialMeal={editing.entry.meal}
           showMeal
           confirmLabel="Guardar"
           onClose={() => setEditing(null)}
-          onConfirm={async (amount, meal) => {
+          onConfirm={async (amount, meal, portion) => {
             const e = editing.entry;
-            await db.entries.update(e.id!, { amount, meal, nutrients: scale(e.food!.per100, amount) });
+            await db.entries.update(e.id!, { amount, meal, portion, nutrients: scale(e.food!.per100, amount) });
             setEditing(null);
           }}
           onDelete={async () => {

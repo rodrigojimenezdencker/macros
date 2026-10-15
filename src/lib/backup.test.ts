@@ -48,6 +48,34 @@ describe('sanitizeBackup', () => {
     expect(clean.settings.offCountry).toBe('world');
   });
 
+  it('keeps how amounts were entered, and drops portions it does not understand', () => {
+    const glass = { measure: 'glass', qty: 1 };
+    const clean = sanitizeBackup({
+      foods: [
+        { ...goodFood, lastPortion: glass },
+        { ...goodFood, id: 2, lastPortion: { measure: 'bucket', qty: 1 } },
+        {
+          ...goodFood,
+          id: 3,
+          source: 'recipe',
+          ingredients: [{ name: 'Leche', amount: 250, unit: 'ml', per100: goodFood.per100, portion: glass }],
+        },
+      ],
+      entries: [
+        { ...goodEntry, food: { name: 'Leche', unit: 'ml', per100: goodFood.per100 }, amount: 250, portion: glass },
+        { ...goodEntry, id: 2, food: { name: 'Leche', unit: 'ml', per100: goodFood.per100 }, portion: { measure: 'l', qty: -1 } },
+        { ...goodEntry, id: 3, portion: glass }, // quick add: no food, so no portion
+      ],
+      weights: [],
+    });
+    expect(clean.foods[0].lastPortion).toEqual(glass);
+    expect(clean.foods[1]).not.toHaveProperty('lastPortion');
+    expect(clean.foods[2].ingredients![0].portion).toEqual(glass);
+    expect(clean.entries[0].portion).toEqual(glass);
+    expect(clean.entries[1]).not.toHaveProperty('portion');
+    expect(clean.entries[2]).not.toHaveProperty('portion');
+  });
+
   it('drops duplicate ids so the import cannot fail half-way', () => {
     const clean = sanitizeBackup({ foods: [goodFood, { ...goodFood, name: 'Copia' }], entries: [], weights: [] });
     expect(clean.foods.map((f) => f.name)).toEqual(['Avena']);

@@ -33,8 +33,10 @@ const FIELDS = [
   'nutriments',
   'serving_size',
   'serving_quantity',
+  'serving_quantity_unit',
   'product_quantity_unit',
   'quantity',
+  'categories_tags',
   'image_front_small_url',
   'image_small_url',
 ].join(',');
@@ -72,11 +74,29 @@ function kcalFrom(n: Raw): number | undefined {
   return kj !== undefined ? kj / 4.184 : undefined;
 }
 
+const VOLUME_UNIT = /^(ml|cl|dl|l|fl\.? ?oz)$/;
+const WEIGHT_UNIT = /^(mg|g|kg|oz|lbs?)$/;
+const VOLUME_TEXT = /\d\s*(ml|cl|dl|l|litros?|fl\.? ?oz)\b/i;
+const WEIGHT_TEXT = /\d\s*(mg|g|gr|grs|gramos?|kg|kilos?|oz|lbs?)\b/i;
+const DRINK_TAGS = ['en:beverages', 'en:milks', 'en:plant-based-milks', 'en:juices', 'en:waters', 'en:sodas'];
+// Drink categories that are sold dry: cocoa powder, instant coffee, tea bags…
+const DRY_TAGS = ['en:dried-products', 'en:beverage-preparations', 'en:instant-beverages', 'en:powdered-milks', 'en:coffees', 'en:teas'];
+
+/** Whether nutrition is per 100 ml: from the pack size, then the serving, then the category. */
 function unitFrom(p: Raw): Unit {
-  const u = str(p.product_quantity_unit)?.toLowerCase();
-  if (u === 'ml' || u === 'l' || u === 'cl') return 'ml';
-  if (u) return 'g';
-  return /\d\s*(ml|cl|l)\b/i.test(str(p.quantity) ?? '') ? 'ml' : 'g';
+  for (const field of [p.product_quantity_unit, p.serving_quantity_unit]) {
+    const u = str(field)?.toLowerCase();
+    if (u && VOLUME_UNIT.test(u)) return 'ml';
+    if (u && WEIGHT_UNIT.test(u)) return 'g';
+  }
+  for (const field of [p.quantity, p.serving_size]) {
+    const text = str(field) ?? '';
+    if (VOLUME_TEXT.test(text)) return 'ml';
+    if (WEIGHT_TEXT.test(text)) return 'g';
+  }
+  const tags = Array.isArray(p.categories_tags) ? p.categories_tags : [];
+  const has = (list: string[]) => list.some((t) => tags.includes(t));
+  return has(DRINK_TAGS) && !has(DRY_TAGS) ? 'ml' : 'g';
 }
 
 /** True when the product carries at least energy or one macro per 100 g. */

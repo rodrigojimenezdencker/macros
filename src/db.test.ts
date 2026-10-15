@@ -30,6 +30,20 @@ describe('rememberFood', () => {
   });
 });
 
+describe('rememberFood portions', () => {
+  it('remembers the last portion, also on products found again by barcode', async () => {
+    const id = await rememberFood(yogurt, database, { measure: 'tbsp', qty: 2 });
+    expect((await database.foods.get(id))!.lastPortion).toEqual({ measure: 'tbsp', qty: 2 });
+    await rememberFood({ ...yogurt, per100: { ...yogurt.per100, kcal: 125 } }, database, { measure: 'cup', qty: 1 });
+    expect((await database.foods.get(id))!.lastPortion).toEqual({ measure: 'cup', qty: 1 });
+    await rememberFood({ ...yogurt, id }, database, { measure: 'g', qty: 125 });
+    expect((await database.foods.get(id))!.lastPortion).toEqual({ measure: 'g', qty: 125 });
+    // A pick from a search result carries no portion of its own: keep the remembered one.
+    await rememberFood(yogurt, database);
+    expect((await database.foods.get(id))!).toMatchObject({ lastPortion: { measure: 'g', qty: 125 }, useCount: 4 });
+  });
+});
+
 describe('copyFromYesterday', () => {
   it('copies a meal from the previous day', async () => {
     await database.entries.add({

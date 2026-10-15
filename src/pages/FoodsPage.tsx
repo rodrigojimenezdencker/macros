@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { db, rememberFood } from '../db';
 import { NO_FOODS, useDbQuery } from '../hooks';
 import { navigate } from '../router';
-import type { Food, MealId } from '../types';
+import type { Food, MealId, Portion } from '../types';
 import { today } from '../lib/dates';
 import { scale, snapshotOf } from '../lib/nutrition';
 import { mealForHour, mealLabel } from '../lib/meals';
@@ -44,13 +44,14 @@ export function FoodsPage({ initialTab }: { initialTab: string | null }) {
     navigate(`/foods?tab=${t}`, { replace: true });
   };
 
-  const addToToday = async (food: Food, amount: number, meal: MealId) => {
-    const id = await rememberFood(food);
+  const addToToday = async (food: Food, amount: number, meal: MealId, portion: Portion) => {
+    const id = await rememberFood(food, db, portion);
     await db.entries.add({
       date: today(),
       meal,
       food: { ...snapshotOf(food), foodId: id },
       amount,
+      portion,
       name: food.name,
       nutrients: scale(food.per100, amount),
       createdAt: Date.now(),
@@ -112,7 +113,7 @@ export function FoodsPage({ initialTab }: { initialTab: string | null }) {
           }}
           onEdit={() => edit(selected)}
           onClose={() => setSelected(null)}
-          onConfirm={(amount, meal) => void addToToday(selected, amount, meal)}
+          onConfirm={(amount, meal, portion) => void addToToday(selected, amount, meal, portion)}
         />
       )}
     </div>
