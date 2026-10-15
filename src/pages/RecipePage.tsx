@@ -9,6 +9,7 @@ import { NumberField, TextField } from '../components/Field';
 import { FoodPicker } from '../components/FoodPicker';
 import { FoodDetailSheet } from '../components/FoodDetailSheet';
 import { MacroLine, MacroSplitBar } from '../components/Macros';
+import { portionLabel } from '../lib/units';
 import { Sheet } from '../components/Sheet';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
@@ -119,7 +120,7 @@ export function RecipePage({ id }: { id?: number }) {
                       <span className="entry-name">{ing.name}</span>
                       <span className="entry-sub">
                         {ing.brand && <>{ing.brand} · </>}
-                        {fmt(ing.amount)} {ing.unit}
+                        {portionLabel(ing, ing.amount, ing.portion)}
                       </span>
                       <MacroLine n={n} />
                     </span>
@@ -178,6 +179,7 @@ export function RecipePage({ id }: { id?: number }) {
         <FoodDetailSheet
           food={editingFood}
           initialAmount={editing?.kind === 'existing' ? ingredients[editing.index].amount : undefined}
+          initialPortion={editing?.kind === 'existing' ? ingredients[editing.index].portion : undefined}
           showMeal={false}
           confirmLabel={editing?.kind === 'existing' ? 'Guardar' : 'Añadir ingrediente'}
           onClose={() => setEditing(null)}
@@ -189,18 +191,19 @@ export function RecipePage({ id }: { id?: number }) {
                 }
               : undefined
           }
-          onConfirm={(amount) => {
+          onConfirm={(amount, _meal, portion) => {
             if (editing?.kind === 'existing') {
-              setIngredients((list) => list.map((ing, i) => (i === editing.index ? { ...ing, amount } : ing)));
+              setIngredients((list) => list.map((ing, i) => (i === editing.index ? { ...ing, amount, portion } : ing)));
             } else if (editing?.kind === 'new') {
               const f = editing.food;
-              void rememberFood(f);
+              void rememberFood(f, db, portion);
               setIngredients((list) => [
                 ...list,
                 {
                   name: f.name,
                   brand: f.brand,
                   amount,
+                  portion,
                   unit: f.unit,
                   per100: f.per100,
                   servingSize: f.servingSize,

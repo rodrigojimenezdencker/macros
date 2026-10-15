@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable, type Table } from 'dexie';
-import type { DiaryEntry, Food, MealId, Settings, WeightEntry } from './types';
+import type { DiaryEntry, Food, MealId, Portion, Settings, WeightEntry } from './types';
 import { DEFAULT_GOALS } from './lib/goals';
 import { addDays } from './lib/dates';
 import { legacyUid, markRemote, markTombstoned, newUid, recordsDeletes, stamp, track, type Kind, type Tombstone, type Tracked } from './sync/tracking';
@@ -98,22 +98,24 @@ export async function saveSettings(patch: Partial<Settings>, database = db): Pro
 }
 
 /**
- * Stores a food the user picked so it shows up in "Recientes". Foods from
- * Open Food Facts are de-duplicated by barcode.
+ * Stores a food the user picked so it shows up in "Recientes", with the
+ * portion they logged so it is offered next time. Foods from Open Food Facts
+ * are de-duplicated by barcode.
  */
-export async function rememberFood(food: Food, database = db): Promise<number> {
+export async function rememberFood(food: Food, database = db, portion?: Portion): Promise<number> {
   const now = Date.now();
+  const last = portion ? { lastPortion: { measure: portion.measure, qty: portion.qty } } : {};
   if (food.id !== undefined) {
     const existing = await database.foods.get(food.id);
     if (existing) {
-      await database.foods.update(food.id, { lastUsedAt: now, useCount: (existing.useCount ?? 0) + 1 });
+      await database.foods.update(food.id, { lastUsedAt: now, useCount: (existing.useCount ?? 0) + 1, ...last });
       return food.id;
     }
   }
   if (food.barcode) {
     const existing = await database.foods.where('barcode').equals(food.barcode).first();
     if (existing?.id !== undefined) {
-      const usage = { lastUsedAt: now, useCount: (existing.useCount ?? 0) + 1 };
+      const usage = { lastUsedAt: now, useCount: (existing.useCount ?? 0) + 1, ...last };
       // Never overwrite a food the user created or edited.
       if (existing.source !== 'off' || food.source !== 'off') {
         await database.foods.update(existing.id, usage);
@@ -131,7 +133,7 @@ export async function rememberFood(food: Food, database = db): Promise<number> {
     }
   }
   const { id: _id, uid: _uid, ...rest } = food as Food & Tracked;
-  return (await database.foods.add({ ...rest, lastUsedAt: now, useCount: 1, createdAt: food.createdAt ?? now })) as number;
+  return (await database.foods.add({ ...rest, lastUsedAt: now, useCount: 1, createdAt: food.createdAt ?? now, ...last })) as number;
 }
 
 export async function copyMeal(fromDate: string, toDate: string, meal: MealId, database = db): Promise<number> {

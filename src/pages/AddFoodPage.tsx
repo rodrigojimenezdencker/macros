@@ -3,7 +3,7 @@ import { db, rememberFood } from '../db';
 import { catchStorage } from '../storage';
 import { useSettings } from '../hooks';
 import { goBack, navigate } from '../router';
-import type { Food, MealId, Nutrients } from '../types';
+import type { Food, MealId, Nutrients, Portion } from '../types';
 import { relativeLabel } from '../lib/dates';
 import { scale, snapshotOf } from '../lib/nutrition';
 import { mealLabel } from '../lib/meals';
@@ -26,13 +26,14 @@ export function AddFoodPage({ date, meal }: { date: string; meal: MealId }) {
 
   const back = () => goBack(`/?d=${date}`);
 
-  const add = async (food: Food, amount: number, toMeal: MealId) => {
-    const id = await rememberFood(food);
+  const add = async (food: Food, amount: number, toMeal: MealId, portion: Portion) => {
+    const id = await rememberFood(food, db, portion);
     await db.entries.add({
       date,
       meal: toMeal,
       food: { ...snapshotOf(food), foodId: id },
       amount,
+      portion,
       name: food.name,
       nutrients: scale(food.per100, amount),
       createdAt: Date.now(),
@@ -101,7 +102,7 @@ export function AddFoodPage({ date, meal }: { date: string; meal: MealId }) {
           favorite={selected.favorite}
           onToggleFavorite={() => void toggleFavorite(selected)}
           onClose={() => setSelected(null)}
-          onConfirm={(amount, toMeal) => void add(selected, amount, toMeal)}
+          onConfirm={(amount, toMeal, portion) => void add(selected, amount, toMeal, portion)}
         />
       )}
       {quick && <QuickAddSheet initialMeal={meal} onClose={() => setQuick(false)} onConfirm={(n, v, m) => void addQuick(n, v, m)} />}

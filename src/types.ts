@@ -11,6 +11,15 @@ export interface Nutrients {
 
 export type Unit = 'g' | 'ml';
 
+/** How an amount was entered: a metric unit, a household measure, or the food's own serving. */
+export type MeasureId = 'serving' | 'g' | 'kg' | 'ml' | 'l' | 'glass' | 'cup' | 'tbsp' | 'tsp';
+
+/** The quantity as the user typed it ("2 vasos"); `amount` keeps the grams/ml it works out to. */
+export interface Portion {
+  measure: MeasureId;
+  qty: number;
+}
+
 export type FoodSource = 'off' | 'custom' | 'recipe';
 
 export interface RecipeIngredient {
@@ -21,6 +30,7 @@ export interface RecipeIngredient {
   per100: Nutrients;
   servingSize?: number;
   servingLabel?: string;
+  portion?: Portion;
 }
 
 /** Fields every synced row carries. */
@@ -47,6 +57,8 @@ export interface Food extends SyncFields {
   favorite?: boolean;
   lastUsedAt?: number;
   useCount?: number;
+  /** What the user logged last time, offered again next time. */
+  lastPortion?: Portion;
   /** Recipes only: the ingredients and how many servings the batch makes. */
   ingredients?: RecipeIngredient[];
   servings?: number;
@@ -71,6 +83,8 @@ export interface DiaryEntry extends SyncFields {
   food?: FoodSnapshot;
   /** Grams (or ml) eaten; meaningful only when `food` is set. */
   amount: number;
+  /** How the amount was entered, for showing "1 vaso" instead of "250 ml". */
+  portion?: Portion;
   /** Totals for this entry, computed when saved. */
   nutrients: Nutrients;
   name: string;

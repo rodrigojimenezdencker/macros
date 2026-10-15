@@ -44,6 +44,26 @@ describe('mapProduct', () => {
     expect(food.unit).toBe('ml');
   });
 
+  it('tells drinks (per 100 ml) from solids (per 100 g)', () => {
+    const unit = (p: Record<string, unknown>) => mapProduct({ product_name: 'x', ...p })!.unit;
+    expect(unit({ product_quantity_unit: 'ml' })).toBe('ml');
+    expect(unit({ product_quantity_unit: 'l' })).toBe('ml');
+    expect(unit({ product_quantity_unit: 'g', categories_tags: ['en:beverages'] })).toBe('g');
+    expect(unit({ quantity: '6 x 200 ml' })).toBe('ml');
+    expect(unit({ quantity: '1 litro' })).toBe('ml');
+    expect(unit({ quantity: '33cl' })).toBe('ml');
+    expect(unit({ quantity: '500 g', serving_size: '250 ml' })).toBe('g');
+    expect(unit({ quantity: '6 bricks', serving_size: '1 vaso (250 ml)' })).toBe('ml');
+    expect(unit({ serving_quantity_unit: 'ml' })).toBe('ml');
+    expect(unit({ serving_size: '30 g', categories_tags: ['en:beverages'] })).toBe('g');
+    // No size anywhere: the category decides, but drink powders stay in grams.
+    expect(unit({ categories_tags: ['en:dairies', 'en:milks'] })).toBe('ml');
+    expect(unit({ categories_tags: ['en:beverages', 'en:plant-based-milks'] })).toBe('ml');
+    expect(unit({ categories_tags: ['en:beverages', 'en:instant-beverages'] })).toBe('g');
+    expect(unit({ product_quantity_unit: 'unit', categories_tags: ['en:juices'] })).toBe('ml');
+    expect(unit({})).toBe('g');
+  });
+
   it('accepts brands as an array (search service format)', () => {
     expect(mapProduct({ product_name: 'Leche', brands: ['Hacendado'] })!.brand).toBe('Hacendado');
   });
