@@ -27,6 +27,35 @@ test('logs a food from Open Food Facts by servings', async ({ page }) => {
   await expect(page.getByText('1838')).toBeVisible(); // 2000 − 162 remaining (Spanish doesn't group 4-digit numbers)
 });
 
+test('search rides out Open Food Facts failing for a moment', async ({ page }) => {
+  // OFF's 503s carry no CORS headers, so the page sees them as failed requests.
+  let calls = 0;
+  await page.route(/openfoodfacts\.org\/cgi\/search\.pl/, (route) => (++calls <= 2 ? route.abort('failed') : route.fallback()));
+  await page.getByRole('region', { name: 'Desayuno' }).getByRole('button', { name: 'Añadir alimento' }).click();
+  await page.getByLabel('Buscar alimento').fill('leche');
+  await page.getByLabel('Buscar alimento').press('Enter');
+  await expect(page.getByText('Buscando…')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Leche semidesnatada/ })).toBeVisible({ timeout: 10_000 });
+  expect(calls).toBe(3);
+});
+
+test('when Open Food Facts is down the search says so and can be tried again', async ({ page }) => {
+  let down = true;
+  await page.route(/openfoodfacts\.org\/cgi\/search\.pl/, (route) => (down ? route.abort('failed') : route.fallback()));
+  await page.getByRole('region', { name: 'Desayuno' }).getByRole('button', { name: 'Añadir alimento' }).click();
+  await page.getByLabel('Buscar alimento').fill('leche');
+  await page.getByLabel('Buscar alimento').press('Enter');
+  await expect(page.getByText('Open Food Facts no responde ahora mismo. Vuelve a intentarlo en unos segundos.')).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.getByText(/conexión/)).toHaveCount(0);
+
+  down = false;
+  await page.getByRole('button', { name: 'Buscar «leche»' }).click();
+  await expect(page.getByRole('button', { name: /Leche semidesnatada/ })).toBeVisible();
+  await expect(page.getByText(/no responde/)).toHaveCount(0);
+});
+
 test('edits an entry and undoes a delete', async ({ page }) => {
   await page.getByRole('region', { name: 'Desayuno' }).getByRole('button', { name: 'Añadir alimento' }).click();
   await page.getByLabel('Buscar alimento').fill('avena');

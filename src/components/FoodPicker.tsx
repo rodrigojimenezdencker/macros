@@ -138,7 +138,8 @@ export function FoodPicker({
     // Search results sometimes lack nutrition that the product page has.
     if (!hasNutrition(food) && food.barcode) {
       try {
-        const full = await getProduct(food.barcode);
+        // One try only: nothing on screen says we're waiting, and the result is usable without it.
+        const full = await getProduct(food.barcode, undefined, 1);
         if (full) return onPick(await withLastPortion(full));
       } catch {
         // Fall through with what we have.

@@ -7,19 +7,19 @@ import type { Food, Nutrients, Unit } from '../types';
  * every keystroke.
  */
 
-export const OFF_COUNTRIES: { id: string; label: string; tag?: string }[] = [
+export const OFF_COUNTRIES: { id: string; label: string }[] = [
   { id: 'world', label: 'Todo el mundo' },
-  { id: 'es', label: 'España', tag: 'en:spain' },
-  { id: 'mx', label: 'México', tag: 'en:mexico' },
-  { id: 'ar', label: 'Argentina', tag: 'en:argentina' },
-  { id: 'co', label: 'Colombia', tag: 'en:colombia' },
-  { id: 'cl', label: 'Chile', tag: 'en:chile' },
-  { id: 'pe', label: 'Perú', tag: 'en:peru' },
-  { id: 'us', label: 'Estados Unidos', tag: 'en:united-states' },
-  { id: 'uk', label: 'Reino Unido', tag: 'en:united-kingdom' },
-  { id: 'fr', label: 'Francia', tag: 'en:france' },
-  { id: 'it', label: 'Italia', tag: 'en:italy' },
-  { id: 'de', label: 'Alemania', tag: 'en:germany' },
+  { id: 'es', label: 'España' },
+  { id: 'mx', label: 'México' },
+  { id: 'ar', label: 'Argentina' },
+  { id: 'co', label: 'Colombia' },
+  { id: 'cl', label: 'Chile' },
+  { id: 'pe', label: 'Perú' },
+  { id: 'us', label: 'Estados Unidos' },
+  { id: 'uk', label: 'Reino Unido' },
+  { id: 'fr', label: 'Francia' },
+  { id: 'it', label: 'Italia' },
+  { id: 'de', label: 'Alemania' },
 ];
 
 const FIELDS = [
@@ -151,6 +151,13 @@ export function mapProduct(p: Raw): Food | null {
   };
 }
 
+/** An HTTP error status from Open Food Facts. */
+class OffHttpError extends OffError {
+  constructor(readonly status: number) {
+    super(`Open Food Facts respondió ${status}`);
+  }
+}
+
 async function getJSON(url: string, signal?: AbortSignal, timeoutMs = 12000): Promise<Raw> {
   const timeout = AbortSignal.timeout(timeoutMs);
   const combined = signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : (signal ?? timeout);
@@ -159,8 +166,59 @@ async function getJSON(url: string, signal?: AbortSignal, timeoutMs = 12000): Pr
     headers: { Accept: 'application/json' },
   });
   if (res.status === 429) throw new OffError('Demasiadas búsquedas seguidas. Espera un minuto y vuelve a intentarlo.');
-  if (!res.ok) throw new OffError(`Open Food Facts respondió ${res.status}`);
+  if (!res.ok) throw new OffHttpError(res.status);
   return (await res.json()) as Raw;
+}
+
+const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+/**
+ * Open Food Facts often answers 503 for a moment, and those answers carry no
+ * CORS headers, so the browser only reports a failed fetch ("Failed to fetch",
+ * "Load failed"). Such quick failures are worth another try. A timeout is not:
+ * the user has already waited, and the search button is right there.
+ */
+function retryable(err: unknown): boolean {
+  if (offline()) return false;
+  if (err instanceof OffHttpError) return err.status >= 500;
+  return err instanceof TypeError || err instanceof SyntaxError;
+}
+
+/** Waits between tries; a new search (or leaving the page) cancels the wait. */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal!.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/** Waits before the 2nd and 3rd tries. Three tries keep well inside OFF's limit of 10 searches a minute. */
+const RETRY_DELAYS = [1000, 2500];
+
+async function withRetries<T>(request: () => Promise<T>, signal?: AbortSignal, attempts = RETRY_DELAYS.length + 1): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await request();
+    } catch (err) {
+      if (signal?.aborted || i + 1 >= attempts || !retryable(err)) throw err;
+      await pause(RETRY_DELAYS[Math.min(i, RETRY_DELAYS.length - 1)], signal);
+    }
+  }
+}
+
+/** What to tell the user once the tries are spent. */
+function toOffError(err: unknown): OffError {
+  if (err instanceof OffError && !(err instanceof OffHttpError)) return err;
+  if (offline()) return new OffError('No hay conexión. Comprueba tu red y vuelve a intentarlo.');
+  return new OffError('Open Food Facts no responde ahora mismo. Vuelve a intentarlo en unos segundos.');
 }
 
 function host(country: string) {
@@ -182,13 +240,17 @@ function mapList(list: unknown): Food[] {
   return out;
 }
 
-/** Full-text search. Tries the classic search API, then the newer search service. */
+/**
+ * Full-text search on the classic search API, the only Open Food Facts search
+ * a browser can call: the newer search service (search.openfoodfacts.org)
+ * sends no CORS headers.
+ */
 export async function searchProducts(query: string, country: string, signal?: AbortSignal): Promise<Food[]> {
   const q = query.trim();
   if (!q) return [];
 
-  const classic = new URL(`${host(country)}/cgi/search.pl`);
-  classic.search = new URLSearchParams({
+  const url = new URL(`${host(country)}/cgi/search.pl`);
+  url.search = new URLSearchParams({
     search_terms: q,
     search_simple: '1',
     action: 'process',
@@ -199,40 +261,30 @@ export async function searchProducts(query: string, country: string, signal?: Ab
   }).toString();
 
   try {
-    const data = await getJSON(classic.toString(), signal);
+    const data = await withRetries(() => getJSON(url.toString(), signal), signal);
     return mapList(data.products);
   } catch (err) {
     if (signal?.aborted) throw err;
-    const tag = OFF_COUNTRIES.find((c) => c.id === country)?.tag;
-    const modern = new URL('https://search.openfoodfacts.org/search');
-    modern.search = new URLSearchParams({
-      q: tag ? `${q} countries_tags:"${tag}"` : q,
-      page_size: '30',
-      langs: 'es,en',
-      fields: FIELDS,
-    }).toString();
-    try {
-      const data = await getJSON(modern.toString(), signal);
-      return mapList(data.hits ?? data.products);
-    } catch {
-      throw err instanceof OffError ? err : new OffError('No se pudo conectar con Open Food Facts. ¿Tienes conexión?');
-    }
+    throw toOffError(err);
   }
 }
 
-/** Looks a product up by barcode. Returns null when OFF does not know it. */
-export async function getProduct(barcode: string, signal?: AbortSignal): Promise<Food | null> {
+/**
+ * Looks a product up by barcode. Returns null when OFF does not know it.
+ * `attempts` is 1 for a lookup the user isn't waiting on.
+ */
+export async function getProduct(barcode: string, signal?: AbortSignal, attempts?: number): Promise<Food | null> {
   const code = barcode.replace(/\D/g, '');
   if (!code) return null;
   let data: Raw;
   try {
-    data = await getJSON(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${FIELDS}`, signal);
+    const url = `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${FIELDS}`;
+    data = await withRetries(() => getJSON(url, signal), signal, attempts);
   } catch (err) {
-    // A 404 is the API's way of saying "unknown product".
-    if (err instanceof OffError && /404/.test(err.message)) return null;
-    if (err instanceof OffError) throw err;
     if (signal?.aborted) throw err;
-    throw new OffError('No se pudo conectar con Open Food Facts. ¿Tienes conexión?');
+    // A 404 is the API's way of saying "unknown product".
+    if (err instanceof OffHttpError && err.status === 404) return null;
+    throw toOffError(err);
   }
   if (data.status !== 1 && data.status !== 'success') return null;
   const food = mapProduct({ ...(data.product as Raw), code });
