@@ -61,7 +61,7 @@ describe('settings and backup', () => {
     const other = new MacrosDB(`test-${Math.random()}`);
     await importAll(JSON.parse(JSON.stringify(backup)), other);
     expect(await other.foods.count()).toBe(1);
-    expect(await other.weights.get('2026-10-14')).toEqual({ date: '2026-10-14', kg: 80 });
+    expect(await other.weights.get('2026-10-14')).toMatchObject({ date: '2026-10-14', kg: 80 });
   });
 });
 

@@ -62,6 +62,7 @@ function food(x: unknown): Food | null {
   const source = x.source === 'off' || x.source === 'recipe' ? x.source : 'custom';
   const out: Food = {
     id: id(x.id),
+    uid: text(x.uid),
     name,
     brand: text(x.brand),
     barcode: text(x.barcode),
@@ -108,6 +109,7 @@ function entry(x: unknown): DiaryEntry | null {
   const snap = snapshot(x.food);
   return {
     id: id(x.id),
+    uid: text(x.uid),
     date: x.date,
     meal: x.meal as DiaryEntry['meal'],
     food: snap,
@@ -162,14 +164,16 @@ function compact<T extends object>(row: T): T {
 }
 
 /**
- * Keeps the first row for each id, and puts rows with an id before rows
- * without one: auto-generated keys could otherwise collide with an explicit
- * id later in the list and abort the whole import.
+ * Keeps the first row for each id (and each sync uid), and puts rows with an
+ * id before rows without one: auto-generated keys could otherwise collide
+ * with an explicit id later in the list and abort the whole import.
  */
-function uniqueIds<T extends { id?: number }>(rows: T[]): T[] {
+function uniqueIds<T extends { id?: number; uid?: string }>(rows: T[]): T[] {
   const seen = new Set<number>();
-  const withId = rows.filter((r) => r.id !== undefined && !seen.has(r.id) && !!seen.add(r.id));
-  return [...withId, ...rows.filter((r) => r.id === undefined)];
+  const uids = new Set<string>();
+  const unique = rows.filter((r) => !r.uid || (!uids.has(r.uid) && !!uids.add(r.uid)));
+  const withId = unique.filter((r) => r.id !== undefined && !seen.has(r.id) && !!seen.add(r.id));
+  return [...withId, ...unique.filter((r) => r.id === undefined)];
 }
 
 export interface CleanBackup {
