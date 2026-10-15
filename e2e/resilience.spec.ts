@@ -56,7 +56,8 @@ test('a screen that fails to render shows the error and keeps the app usable', a
   await page.getByText('Detalles técnicos').click();
   const details = page.locator('.crash-more .crash-detail');
   await expect(details).toContainText('Pantalla: #/progress');
-  await expect(details).toContainText('Versión: local');
+  // Same rule as vite.config.ts: CI builds are stamped with the commit, local builds say "local".
+  await expect(details).toContainText(`Versión: ${process.env.GITHUB_SHA?.slice(0, 7) ?? 'local'}`);
   await expect(details).toContainText(/index-[\w-]+\.js:\d+:\d+/);
 
   await page.evaluate(() => {
