@@ -158,16 +158,26 @@ class OffHttpError extends OffError {
   }
 }
 
+/**
+ * fetch + JSON with a time limit. Built by hand: AbortSignal.timeout (iOS 16)
+ * and AbortSignal.any (iOS 17.4) are too new for older iPhones. The timeout
+ * aborts with a TimeoutError, which is never retried.
+ */
 async function getJSON(url: string, signal?: AbortSignal, timeoutMs = 12000): Promise<Raw> {
-  const timeout = AbortSignal.timeout(timeoutMs);
-  const combined = signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : (signal ?? timeout);
-  const res = await fetch(url, {
-    signal: combined,
-    headers: { Accept: 'application/json' },
-  });
-  if (res.status === 429) throw new OffError('Demasiadas búsquedas seguidas. Espera un minuto y vuelve a intentarlo.');
-  if (!res.ok) throw new OffHttpError(res.status);
-  return (await res.json()) as Raw;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(new DOMException('Open Food Facts tardó demasiado.', 'TimeoutError')), timeoutMs);
+  const onAbort = () => ctl.abort(signal!.reason);
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    const res = await fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json' } });
+    if (res.status === 429) throw new OffError('Demasiadas búsquedas seguidas. Espera un minuto y vuelve a intentarlo.');
+    if (!res.ok) throw new OffHttpError(res.status);
+    return (await res.json()) as Raw;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+  }
 }
 
 const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -184,7 +194,7 @@ function retryable(err: unknown): boolean {
   return err instanceof TypeError || err instanceof SyntaxError;
 }
 
-/** Waits between tries; a new search (or leaving the page) cancels the wait. */
+/** Waits between tries; a new search, or leaving the picker, cancels the wait. */
 function pause(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason);

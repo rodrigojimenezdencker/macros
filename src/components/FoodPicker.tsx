@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { db } from '../db';
 import { NO_FOODS, useDbQuery } from '../hooks';
 import { navigate } from '../router';
@@ -98,6 +98,8 @@ export function FoodPicker({
   const [scanning, setScanning] = useState(false);
   const [notFound, setNotFound] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  // Leaving the picker stops a search that is still retrying.
+  useEffect(() => () => abort.current?.abort(), []);
 
   const all = useDbQuery(() => db.foods.toArray(), [], NO_FOODS);
   const lists = useMemo(() => {

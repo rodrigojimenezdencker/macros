@@ -170,6 +170,31 @@ describe('network', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('times out on browsers without AbortSignal.timeout/any (older iPhones), and does not retry it', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('AbortSignal', Object.assign(function () {}, { prototype: AbortSignal.prototype }));
+    // A request OFF never answers: it only ends when its signal aborts.
+    const fetchMock = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_, reject) => init.signal!.addEventListener('abort', () => reject(init.signal!.reason))),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const search = searchProducts('nutella', 'es', new AbortController().signal);
+    const failed = expect(search).rejects.toThrow('Open Food Facts no responde');
+    await vi.advanceTimersByTimeAsync(12_000);
+    await failed;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // The caller can still cancel it.
+    const ctrl = new AbortController();
+    const cancelled = searchProducts('nutella', 'es', ctrl.signal);
+    const rejected = expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(100);
+    ctrl.abort();
+    await rejected;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('retries a barcode lookup, but an unknown product is just unknown', async () => {
     vi.useFakeTimers();
     const fetchMock = vi
