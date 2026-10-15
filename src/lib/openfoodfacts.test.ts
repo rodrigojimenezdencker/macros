@@ -56,6 +56,10 @@ describe('mapProduct', () => {
     expect(unit({ quantity: '6 bricks', serving_size: '1 vaso (250 ml)' })).toBe('ml');
     expect(unit({ serving_quantity_unit: 'ml' })).toBe('ml');
     expect(unit({ serving_size: '30 g', categories_tags: ['en:beverages'] })).toBe('g');
+    // The first unit named decides, and accents don't end a unit.
+    expect(unit({ serving_size: '30 g + 125 ml de leche semidesnatada' })).toBe('g');
+    expect(unit({ serving_size: '1 vaso de 200 ml (aprox. 206 g)' })).toBe('ml');
+    expect(unit({ quantity: '1 paquete', serving_size: '1 lámina (25 g)' })).toBe('g');
     // No size anywhere: the category decides, but drink powders stay in grams.
     expect(unit({ categories_tags: ['en:dairies', 'en:milks'] })).toBe('ml');
     expect(unit({ categories_tags: ['en:beverages', 'en:plant-based-milks'] })).toBe('ml');

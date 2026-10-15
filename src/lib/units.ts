@@ -52,11 +52,11 @@ const household = (id: MeasureId, size: number, one: string, many: string): Meas
   household: true,
 });
 
-const WEIGHT: Measure[] = [metric('g', 'g', 1, 'Gramos', 10, 1), metric('kg', 'g', 1000, 'Kilos', 0.1, 3)];
+const WEIGHT: Measure[] = [metric('g', 'g', 1, 'Gramos', 10, 1), metric('kg', 'g', 1000, 'Kilos', 0.1, 4)];
 
 const VOLUME: Measure[] = [
   metric('ml', 'ml', 1, 'Mililitros', 10, 1),
-  metric('l', 'ml', 1000, 'Litros', 0.1, 3),
+  metric('l', 'ml', 1000, 'Litros', 0.1, 4),
   household('glass', 250, 'vaso', 'vasos'),
   household('cup', 240, 'taza', 'tazas'),
   household('tbsp', 15, 'cucharada', 'cucharadas'),

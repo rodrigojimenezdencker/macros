@@ -57,6 +57,9 @@ describe('qtyIn', () => {
     expect(qtyIn(milk, 'l', 250)).toBe(0.25);
     expect(qtyIn(milk, 'ml', 250)).toBe(250);
     expect(qtyIn(oats, 'kg', 1234)).toBe(1.234);
+    // Same 0,1 g resolution as grams: switching never changes the amount.
+    expect(amountOf(oats, { measure: 'kg', qty: qtyIn(oats, 'kg', 12.5) })).toBe(12.5);
+    expect(amountOf(milk, { measure: 'l', qty: qtyIn(milk, 'l', 0.4) })).toBe(0.4);
   });
 
   it('keeps the amount in household units only when it reads well', () => {

@@ -76,8 +76,9 @@ function kcalFrom(n: Raw): number | undefined {
 
 const VOLUME_UNIT = /^(ml|cl|dl|l|fl\.? ?oz)$/;
 const WEIGHT_UNIT = /^(mg|g|kg|oz|lbs?)$/;
-const VOLUME_TEXT = /\d\s*(ml|cl|dl|l|litros?|fl\.? ?oz)\b/i;
-const WEIGHT_TEXT = /\d\s*(mg|g|gr|grs|gramos?|kg|kilos?|oz|lbs?)\b/i;
+// JavaScript's \b treats "á" as a word break, which would read "1 lámina" as litres.
+const VOLUME_TEXT = /\d\s*(ml|cl|dl|l|litros?|fl\.? ?oz)(?![\p{L}\p{N}_])/iu;
+const WEIGHT_TEXT = /\d\s*(mg|g|gr|grs|gramos?|kg|kilos?|oz|lbs?)(?![\p{L}\p{N}_])/iu;
 const DRINK_TAGS = ['en:beverages', 'en:milks', 'en:plant-based-milks', 'en:juices', 'en:waters', 'en:sodas'];
 // Drink categories that are sold dry: cocoa powder, instant coffee, tea bags…
 const DRY_TAGS = ['en:dried-products', 'en:beverage-preparations', 'en:instant-beverages', 'en:powdered-milks', 'en:coffees', 'en:teas'];
@@ -90,9 +91,12 @@ function unitFrom(p: Raw): Unit {
     if (u && WEIGHT_UNIT.test(u)) return 'g';
   }
   for (const field of [p.quantity, p.serving_size]) {
+    // The first unit named decides: "30 g + 125 ml de leche" is a 30 g serving.
     const text = str(field) ?? '';
-    if (VOLUME_TEXT.test(text)) return 'ml';
-    if (WEIGHT_TEXT.test(text)) return 'g';
+    const volume = VOLUME_TEXT.exec(text)?.index ?? Infinity;
+    const weight = WEIGHT_TEXT.exec(text)?.index ?? Infinity;
+    if (volume < weight) return 'ml';
+    if (weight < volume) return 'g';
   }
   const tags = Array.isArray(p.categories_tags) ? p.categories_tags : [];
   const has = (list: string[]) => list.some((t) => tags.includes(t));

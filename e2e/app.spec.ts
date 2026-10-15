@@ -91,7 +91,7 @@ test('logs milk in glasses and litres and remembers the unit', async ({ page }) 
   await expect(sheet.getByText(/Aproximado/)).toHaveCount(0);
   await sheet.getByLabel('Unidad').selectOption({ label: 'Gramos (g)' });
   await expect(field(sheet, 'Cantidad')).toHaveValue('500');
-  await expect(sheet.getByText('Aproximado: se cuenta 1 ml como 1 g.')).toBeVisible();
+  await expect(sheet.getByText('Aproximado: se cuenta 1 g como 1 ml.')).toBeVisible();
   await expect(sheet.getByText('kcal en ≈500 ml')).toBeVisible();
   await sheet.getByLabel('Unidad').selectOption({ label: 'Cucharada (15 ml)' });
   await expect(field(sheet, 'Cantidad')).toHaveValue('1'); // 33,3 cucharadas reads badly: start at one
@@ -153,8 +153,13 @@ test('builds a recipe and logs a serving', async ({ page }) => {
   await page.getByLabel('Buscar alimento').fill('leche');
   await page.getByLabel('Buscar alimento').press('Enter');
   await page.getByRole('button', { name: /Leche semidesnatada/ }).click();
+  await page.getByRole('dialog', { name: 'Leche semidesnatada' }).getByLabel('Unidad').selectOption({ label: 'Vaso (250 ml)' });
   await field(page, 'Cantidad').fill('1');
   await page.getByRole('button', { name: 'Añadir ingrediente' }).last().click();
+  await expect(page.getByText('1 vaso · 250 ml')).toBeVisible();
+  await page.getByRole('button', { name: /Leche semidesnatada/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Leche semidesnatada' }).getByLabel('Unidad')).toHaveValue('glass');
+  await page.getByRole('dialog', { name: 'Leche semidesnatada' }).getByRole('button', { name: 'Cerrar' }).click();
 
   // (372 + 115) / 2 servings
   await expect(page.getByText('244', { exact: true })).toBeVisible();
@@ -166,6 +171,11 @@ test('builds a recipe and logs a serving', async ({ page }) => {
   await page.getByRole('button', { name: /Porridge/ }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Añadir', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Desayuno' }).getByText('244 kcal')).toBeVisible();
+
+  // The milk's glass in the recipe is not what you drink: the diary still offers one serving.
+  await page.getByRole('region', { name: 'Desayuno' }).getByRole('button', { name: 'Añadir alimento' }).click();
+  await page.getByRole('button', { name: /Leche semidesnatada/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Leche semidesnatada' }).getByLabel('Unidad')).toHaveValue('serving');
 });
 
 test('calculates goals and logs weight', async ({ page }) => {

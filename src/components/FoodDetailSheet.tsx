@@ -142,7 +142,9 @@ export function FoodDetailSheet({
       {measure === 'serving' && food.servingLabel && <p className="muted small center">1 porción = {food.servingLabel}</p>}
       {approx && (
         <p className="muted small center">
-          Aproximado: se cuenta 1 ml como 1 g.
+          {u === 'g'
+            ? 'Aproximado: se cuenta 1 ml como 1 g. Vale para líquidos; la harina, la avena o los cereales pesan bastante menos, mejor en gramos.'
+            : 'Aproximado: se cuenta 1 g como 1 ml.'}
         </p>
       )}
 

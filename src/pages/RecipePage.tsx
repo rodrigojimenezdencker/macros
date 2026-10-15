@@ -196,7 +196,8 @@ export function RecipePage({ id }: { id?: number }) {
               setIngredients((list) => list.map((ing, i) => (i === editing.index ? { ...ing, amount, portion } : ing)));
             } else if (editing?.kind === 'new') {
               const f = editing.food;
-              void rememberFood(f, db, portion);
+              // A batch amount (1 kg of rice) is not a portion you eat: keep the diary default as it is.
+              void rememberFood(f);
               setIngredients((list) => [
                 ...list,
                 {
