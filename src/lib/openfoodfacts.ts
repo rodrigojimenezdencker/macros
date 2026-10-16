@@ -191,8 +191,11 @@ const offline = () => typeof navigator !== 'undefined' && navigator.onLine === f
  * and such quick failures are worth another try. A slow failure is not (a weak
  * signal that took seconds to give up would take minutes over six tries), nor
  * a timeout: the user has already waited, and the search button is right
- * there. Nor is a 429: OFF bans an IP for a day after 12 of those in an hour
- * (fail2ban counts 401/403/429, not 503).
+ * there. Nor is a 429 we can see: OFF bans an IP for a day after 12 of those
+ * in an hour (fail2ban counts 401/403/429, not 503). The per-IP 429 of OFF's
+ * proxy on product lookups also lacks CORS headers, so it looks like a quick
+ * failure and is retried; that is harmless, as nginx's rejections don't drain
+ * the per-IP allowance.
  */
 const QUICK_MS = 3000;
 

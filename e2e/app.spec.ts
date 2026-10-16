@@ -256,8 +256,16 @@ test('scanning an unknown barcode offers to create the food', async ({ page }) =
 });
 
 test('scanning a barcode drops a search that is still retrying', async ({ page }) => {
+  // Nutella is already saved, so the scan opens it straight from this device.
+  const snacks = page.getByRole('region', { name: 'Snacks' });
+  await snacks.getByRole('button', { name: 'Añadir alimento' }).click();
+  await page.getByRole('button', { name: 'Escanear código de barras' }).click();
+  await page.getByLabel('O escribe el número').fill('3017624010701');
+  await page.getByRole('button', { name: 'Buscar', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Nutella' }).getByRole('button', { name: 'Añadir', exact: true }).click();
+
   await page.route(/openfoodfacts\.org\/cgi\/search\.pl/, (route) => route.abort('failed'));
-  await page.getByRole('region', { name: 'Snacks' }).getByRole('button', { name: 'Añadir alimento' }).click();
+  await snacks.getByRole('button', { name: 'Añadir alimento' }).click();
   await page.getByLabel('Buscar alimento').fill('nocilla');
   await page.getByLabel('Buscar alimento').press('Enter');
   await expect(page.getByText(/Reintentando \(\d de 6\)/)).toBeVisible();
@@ -268,7 +276,8 @@ test('scanning a barcode drops a search that is still retrying', async ({ page }
   await expect(sheet).toBeVisible();
   await page.waitForTimeout(13_000); // longer than the old search could have kept retrying
   await sheet.getByRole('button', { name: 'Cerrar' }).click();
-  await expect(page.getByText(/saturado|Reintentando/)).toHaveCount(0);
+  await expect(page.getByText(/saturado|Reintentando|Buscando/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Buscar «nocilla»' })).toBeVisible();
 });
 
 test('scanning a known barcode opens the product', async ({ page }) => {
