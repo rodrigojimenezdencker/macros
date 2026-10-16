@@ -1,11 +1,12 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, appendFileSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { FakeSupabase } from './fake-supabase';
 
 // A new version is published while the app is open: the service worker finds
-// it, and the page reloads into it without interrupting the user. Each test
+// it, and the page reloads into it once the user has left the app. Each test
 // serves its own copy of the build, so "publishing" (changing its sw.js) can't
 // disturb other tests. The browser fetches sw.js updates itself, out of
 // Playwright's reach, which is why routes can't fake this.
@@ -23,9 +24,10 @@ let dir: string;
 let server: Server;
 let origin: string;
 
-test.beforeEach(async () => {
+/** Serves a private copy of a build (dist: local-only app, dist-cloud: with sign-in). */
+async function serve(build: 'dist' | 'dist-cloud') {
   dir = mkdtempSync(join(tmpdir(), 'macros-update-'));
-  cpSync('dist', dir, { recursive: true });
+  cpSync(build, dir, { recursive: true });
   server = createServer((req, res) => {
     const path = normalize(new URL(req.url ?? '/', 'http://x').pathname).replace(/^\/+/, '') || 'index.html';
     try {
@@ -36,50 +38,75 @@ test.beforeEach(async () => {
       res.writeHead(404).end();
     }
   });
-  await new Promise<void>((resolve) => server.listen(0, 'localhost', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
-  origin = `http://localhost:${typeof address === 'object' && address ? address.port : 0}`;
-});
+  origin = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+}
 
 test.afterEach(async () => {
   await new Promise((resolve) => server.close(resolve));
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function openApp(page: Page) {
+async function open(page: Page, ready: Locator) {
   await page.goto(`${origin}/`);
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
-  await expect(page.getByRole('button', { name: 'Hoy' })).toBeVisible();
+  await expect(ready).toBeVisible();
   await page.evaluate(() => ((window as unknown as { oldPage: boolean }).oldPage = true));
 }
 
-const publishNewVersion = () => appendFileSync(join(dir, 'sw.js'), '\n// new version\n');
+/** Publishes a new version and comes back to the app, which finds it and lets it take over. */
+async function publishAndReturn(page: Page) {
+  appendFileSync(join(dir, 'sw.js'), '\n// new version\n');
+  const tookOver = page.evaluate(
+    () => new Promise<void>((resolve) => navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true })),
+  );
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await tookOver;
+}
+
+const hide = (page: Page) =>
+  page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+
 const isOldPage = (page: Page) => page.evaluate(() => (window as unknown as { oldPage?: boolean }).oldPage === true).catch(() => true);
 
-test('coming back to the app picks up a new version', async ({ page }) => {
-  await openApp(page);
-  publishNewVersion();
-  // Returning to the app (the visibility event) checks for a new version.
-  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+test('a new version found when coming back loads once the app is left, never while in use', async ({ page }) => {
+  await serve('dist');
+  await open(page, page.getByRole('button', { name: 'Hoy' }));
+  await publishAndReturn(page);
+  await page.waitForTimeout(1_000);
+  expect(await isOldPage(page)).toBe(true); // nothing on screen is interrupted
+
+  await hide(page);
   await expect.poll(() => isOldPage(page), { timeout: 15_000 }).toBe(false);
   await expect(page.getByRole('button', { name: 'Hoy' })).toBeVisible();
 });
 
-test('a new version found while the app is in use waits until the app is left', async ({ page }) => {
-  test.setTimeout(60_000);
-  await openApp(page);
-  await page.waitForTimeout(10_500); // the app has been in use for a while
-  publishNewVersion();
-  await page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r?.update()));
-  await page.waitForFunction(() =>
-    navigator.serviceWorker.getRegistration().then((r) => !!r && !r.installing && !r.waiting && r.active?.state === 'activated'),
-  );
-  await page.waitForTimeout(1_500);
-  expect(await isOldPage(page)).toBe(true); // nothing the user is doing gets interrupted
-
-  await page.evaluate(() => {
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
-    document.dispatchEvent(new Event('visibilitychange'));
-  });
+test('a failed update download does not stop later updates', async ({ page }) => {
+  await serve('dist');
+  await open(page, page.getByRole('button', { name: 'Hoy' }));
+  // Version 2 can't be fully downloaded (say, the connection drops): its install fails.
+  const index = readFileSync(join(dir, 'index.html'));
+  rmSync(join(dir, 'index.html'));
+  appendFileSync(join(dir, 'sw.js'), '\n// version 2\n');
+  await page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r?.update()).catch(() => {}));
+  await page.waitForFunction(() => navigator.serviceWorker.getRegistration().then((r) => !!r && !r.installing && !r.waiting));
+  // Version 3 downloads fine and still gets loaded.
+  writeFileSync(join(dir, 'index.html'), index);
+  await publishAndReturn(page);
+  await hide(page);
   await expect.poll(() => isOldPage(page), { timeout: 15_000 }).toBe(false);
+});
+
+test('the sign-in screen is never reloaded under the user (e.g. while reading a reset code)', async ({ page }) => {
+  await serve('dist-cloud');
+  await new FakeSupabase().install(page.context());
+  await open(page, page.getByRole('button', { name: 'Entrar', exact: true }));
+  await publishAndReturn(page);
+  await hide(page); // off to the mail app
+  await page.waitForTimeout(1_500);
+  expect(await isOldPage(page)).toBe(true);
 });

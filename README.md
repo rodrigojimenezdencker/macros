@@ -24,7 +24,7 @@ Cuando esté publicada en GitHub Pages (ver abajo), abre la URL en el móvil y:
 - **iPhone (Safari):** botón Compartir → *Añadir a pantalla de inicio*.
 - **Android (Chrome):** menú ⋮ → *Instalar aplicación*.
 
-La app se actualiza sola: cada vez que vuelves a ella busca si hay una versión nueva y se recarga con ella (si la estabas usando, espera a que salgas para no interrumpirte).
+La app se actualiza sola: cada vez que vuelves a ella busca si hay una versión nueva, la descarga y se recarga con ella cuando sales de la app, para no interrumpirte nunca.
 
 Con la cuenta configurada (ver abajo), entra con tu correo en cada dispositivo y verás los mismos datos. Sin cuenta, los datos viven solo en el navegador de ese dispositivo: exporta una copia de seguridad de vez en cuando (Ajustes → Copia de seguridad).
 

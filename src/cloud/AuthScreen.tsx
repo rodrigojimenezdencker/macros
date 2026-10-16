@@ -1,8 +1,9 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import type { AuthError } from '@supabase/supabase-js';
 import { Segmented } from '../components/Field';
 import { appUrl, supabase } from './supabase';
 import { dismissLinkNotice, finishRecovery, useLinkNotice } from './session';
+import { holdUpdates } from '../pwa';
 
 type Mode = 'signin' | 'signup' | 'reset';
 
@@ -101,6 +102,8 @@ export function AuthScreen() {
   const [resetSent, setResetSent] = useState(false);
   const [code, setCode] = useState('');
   const notice = useLinkNotice();
+  // Leaving for the mail app to read a code must not reload the page and lose this screen.
+  useEffect(() => holdUpdates(), []);
 
   const verifyCode = async () => {
     if (!supabase || busy) return;
@@ -261,6 +264,8 @@ export function NewPasswordScreen() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A reload here would end the reset without a new password.
+  useEffect(() => holdUpdates(), []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

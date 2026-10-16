@@ -169,6 +169,9 @@ export function FoodPicker({
     async (code: string) => {
       setScanning(false);
       setNotFound(null);
+      // A search still retrying would share the status line and could report an error after the product opened.
+      abort.current?.abort();
+      setRetry(null);
       const local = await db.foods.where('barcode').equals(code).first();
       if (local && hasNutrition(local)) return onPick(local);
       setLoading(true);

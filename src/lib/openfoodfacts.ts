@@ -187,13 +187,17 @@ const offline = () => typeof navigator !== 'undefined' && navigator.onLine === f
 
 /**
  * OFF's 503s carry no CORS headers, so the browser only reports a failed fetch
- * ("Failed to fetch", "Load failed"). Such quick failures are worth another
- * try. A timeout is not: the user has already waited, and the search button is
- * right there. Nor is a 429: OFF bans an IP for a day after 12 of those in an
- * hour (fail2ban counts 401/403/429, not 503).
+ * ("Failed to fetch", "Load failed"). They come back in well under a second,
+ * and such quick failures are worth another try. A slow failure is not (a weak
+ * signal that took seconds to give up would take minutes over six tries), nor
+ * a timeout: the user has already waited, and the search button is right
+ * there. Nor is a 429: OFF bans an IP for a day after 12 of those in an hour
+ * (fail2ban counts 401/403/429, not 503).
  */
-function retryable(err: unknown): boolean {
-  if (offline()) return false;
+const QUICK_MS = 3000;
+
+function retryable(err: unknown, tookMs: number): boolean {
+  if (offline() || tookMs > QUICK_MS) return false;
   if (err instanceof OffHttpError) return err.status >= 500;
   return err instanceof TypeError || err instanceof SyntaxError;
 }
@@ -238,10 +242,11 @@ async function withRetries<T>(
   onRetry?: OnRetry,
 ): Promise<T> {
   for (let i = 0; ; i++) {
+    const started = Date.now();
     try {
       return await request();
     } catch (err) {
-      if (signal?.aborted || i + 1 >= attempts || !retryable(err)) throw err;
+      if (signal?.aborted || i + 1 >= attempts || !retryable(err, Date.now() - started)) throw err;
       onRetry?.(i + 2, attempts);
       await pause(jitter(RETRY_DELAYS[Math.min(i, RETRY_DELAYS.length - 1)]), signal);
     }
@@ -303,7 +308,8 @@ export async function searchProducts(query: string, country: string, signal?: Ab
   try {
     const data = await withRetries(() => getJSON(url.toString(), signal), signal, SEARCH_ATTEMPTS, onRetry);
     const foods = mapList(data.products);
-    remember(key, foods);
+    // An empty answer may be a hiccup on OFF's side: ask again next time.
+    if (foods.length) remember(key, foods);
     return foods.slice();
   } catch (err) {
     if (signal?.aborted) throw err;

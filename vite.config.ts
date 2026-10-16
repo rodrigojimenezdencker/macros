@@ -17,6 +17,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // src/pwa.ts registers the service worker and reloads into new versions.
+      injectRegister: false,
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'Macros — diario de comidas',
@@ -36,6 +38,9 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // A new version takes over open pages at once (src/pwa.ts then reloads them when safe).
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
         runtimeCaching: [
           {

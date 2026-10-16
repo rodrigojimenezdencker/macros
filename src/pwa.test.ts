@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { shouldReloadNow } from './pwa';
+import { shouldReload } from './pwa';
 
-describe('shouldReloadNow', () => {
-  it('reloads into a new version only when nothing can be lost', () => {
-    expect(shouldReloadNow(3_000, 'visible')).toBe(true); // just opened or brought back
-    expect(shouldReloadNow(60_000, 'visible')).toBe(false); // in use: wait until the app is left
-    expect(shouldReloadNow(60_000, 'hidden')).toBe(true);
+describe('shouldReload', () => {
+  it('reloads into a new version only once the app is out of sight and nothing holds it', () => {
+    expect(shouldReload({ pending: true, held: 0, visibility: 'hidden' })).toBe(true);
+    expect(shouldReload({ pending: true, held: 0, visibility: 'visible' })).toBe(false); // in use: never interrupt
+    expect(shouldReload({ pending: true, held: 1, visibility: 'hidden' })).toBe(false); // e.g. reading a reset code
+    expect(shouldReload({ pending: false, held: 0, visibility: 'hidden' })).toBe(false);
   });
 });

@@ -190,6 +190,27 @@ describe('network', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it('does not retry slow failures, which a weak signal produces (only OFF\'s quick rejections)', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      () => new Promise<Response>((_, reject) => setTimeout(() => reject(new TypeError('Load failed')), 10_000)),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const search = searchProducts('nutella', 'es');
+    const failed = expect(search).rejects.toThrow(SEARCH_BUSY);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await failed;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks again after an empty answer, which may be a hiccup on OFF\'s side', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ products: [] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await searchProducts('zzz', 'es')).toEqual([]);
+    await searchProducts('zzz', 'es');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('does not remember failures', async () => {
     const fetchMock = vi
       .fn()
